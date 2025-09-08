@@ -28,6 +28,7 @@ sidebar <- sidebar(
   shinyDirButton('fastq_folder', 'Select fastq_pass folder', title ='Please select a fastq_pass folder from a run', multiple = F),
   fileInput('upload', 'Upload sample sheet', multiple = F, accept = c('.xlsx', '.csv'), placeholder = 'xlsx or csv file'),
   
+  hover_action_button('reset', 'Reset inputs', button_animation = 'overline-reveal', icon = icon('rotate-right')),
   hover_action_button('start', 'Start pipeline', button_animation = 'overline-reveal', icon = icon('play')),
   hover_action_button('show_session', 'Show session', button_animation = 'overline-reveal', icon = icon('expand')),
   #hover_action_button('ctrlc', 'Send ctrl-c to session', button_animation = 'overline-reveal', icon = icon('stop')),
@@ -52,13 +53,13 @@ ui <- page_navbar(
   title = tags$span(
     tags$span(
       "NXF - TGS app",
-      style = "font-size: 1.3rem; font-weight: normal;"
+      style = "font-size: 1.3rem; font-weight: normal; margin-left: 0em; color: #701705;"
     ),
     tags$span(
       #icon('align-center'),
-      "Nextflow pipeline for ONT plasmid/amplicon assembly at BCL", 
+      "Nextflow pipeline for ONT merge/rename, report generation, and de novo plasmid/amplicon assembly at BCL", 
       #icon('align-center'),
-      style = "font-size: 0.9rem; font-weight: normal; margin-left: 3em;"
+      style = "font-size: 0.9rem; font-weight: normal; margin-left: 7em; color: #701705;"
     )
   ),
   theme = bs_theme(bootswatch = 'yeti', primary = '#196F3D'),
@@ -70,7 +71,7 @@ ui <- page_navbar(
       class = 'bg-secondary', 
       tags$a('Sessions', tooltip(bsicons::bs_icon("question-circle"), 'Currently active tmux sessions'))
     ),
-    max_height = '300px',
+    max_height = 280,
     card_body(
       reactableOutput('table')
     )
@@ -80,7 +81,7 @@ ui <- page_navbar(
     card_header(
       id = 'header2', 
       class = 'bg-secondary', 
-      tags$a('Output', tooltip(bsicons::bs_icon("question-circle"), 'Output from the selected nxf-tgs pipeline'))
+      tags$a('Session output', tooltip(bsicons::bs_icon("question-circle"), 'Output from the selected nxf-tgs pipeline'))
     ),
     height = 450,
     card_body(
@@ -90,6 +91,9 @@ ui <- page_navbar(
 )
 
 server <- function(input, output, session) {
+  # start with start deactivated, activate only when minimum args selected
+  shinyjs::disable('start')
+  
   default_path <- Sys.getenv('DEFAULT_PATH')
   volumes <- c(ont_data = default_path, getVolumes()())
   
@@ -103,7 +107,8 @@ server <- function(input, output, session) {
   empty_df <- data.frame(
     session_id = NA,
     started = NA,
-    runtime = NA
+    runtime = NA,
+    results = NA
     #command = NA,
     #active = NA,
     #attached = NA
@@ -124,7 +129,8 @@ server <- function(input, output, session) {
       data.frame(
         session_id = str_split_i(tmuxinfo, " ", 2),
         started = str_split_i(tmuxinfo, " ", 1) %>% as.numeric() %>% as.POSIXct(),
-        runtime = NA
+        runtime = NA,
+        results = NA
         #command = str_split_i(tmuxinfo, " ", 5),
         #active = str_split_i(tmuxinfo, " ", 6),
         #attached = str_split_i(tmuxinfo, " ", 3)
@@ -142,16 +148,32 @@ server <- function(input, output, session) {
     file <- input$upload
   })
   
-  selected <- reactive({
+  row_selected <- reactive({
     getReactableState('table', 'selected')
   })
   
   session_selected <- reactive({
-    tmux_sessions()[selected(), ]$session_id
+    tmux_sessions()[row_selected(), ]$session_id
   })
   
   
   # outputs
+  # show selection
+  output$stdout <- renderText({
+    #req(samplesheet())
+    path <- parseDirPath(volumes, input$fastq_folder)
+    #ext <- tools::file_ext(samplesheet()$datapath)
+    #shiny::validate(need(ext == 'csv' | ext == 'xlsx', 'Please upload a csv or excel (xlsx) file'))
+    paste0(
+      "Selected parameters: \n",
+      "-----------------------\n",
+      "pipeline: ", input$pipeline, "\n",
+      "fastq path: ", path, "\n",
+      "samplesheet: ", samplesheet()$name, "\n",
+      "profile: ", str_flatten(input$profile, collapse = ","), "\n"
+    )
+  })
+  
   output$table <- renderReactable({
     reactable(
       empty_df,
@@ -170,7 +192,93 @@ server <- function(input, output, session) {
   })
   
   observe({
-    updateReactable('table', data = tmux_sessions(), selected = selected())
+    updateReactable('table', data = tmux_sessions(), selected = row_selected())
+  })
+  
+  observe({
+    if(!is.integer(input$fastq_folder)) {
+      shinyjs::enable('start')
+    }
+  })
+  
+  observeEvent(input$profile, {
+    if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
+      shinyjs::enable('start')
+    }
+  })
+  
+  # reset inputs
+  observeEvent(input$reset, {
+    session$reload()
+  })
+  
+  # main call
+  observeEvent(input$start, {
+    session_id <- digest(runif(42), algo = 'crc32')
+    new_session_name <- paste0(session_id, "-", input$pipeline)
+    selectedFolder <- parseDirPath(volumes, input$fastq_folder)
+  
+    # launch new session
+    args1 <- c('new', '-d', '-s', new_session_name, '-x', '120', '-y', '30')
+    system2('tmux', args = args1)
+    
+    # execute command in the new session - this is application-specific, everything else is common
+    tmux_command <- paste(
+      'nextflow', 'run', 'angelovangel/nxf-tgs', 
+      '--fastq', selectedFolder,
+      '--samplesheet', samplesheet()$datapath,
+      '-profile', str_flatten(input$profile, collapse = ','),
+      sep = ' Space '
+      )
+    if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
+      tmux_command <- paste(
+        'nextflow', 'run', 'angelovangel/nxf-tgs', 
+        '-profile', str_flatten(input$profile, collapse = ','),
+        sep = ' Space '
+      )
+    }
+    
+    args2 <- c('send-keys', '-t', new_session_name, tmux_command, 'C-m')
+    system2('tmux', args = args2)
+      # '-c', 'Space', samplesheet()$datapath, 'Space', '-w', 'Space', input$pipeline, 'Space', '-n', 'Space', 
+      # new_session_name, 'Space', htmlreport, 'Space', mapping, 'Space', singularity, 'Space', transfer, 'Space', 
+      # largeconstruct, 'Space', noassembly, 'Space', assembly_tool, sep = ' '
+    
+    notify_success(text = paste0('Started session: ', session_id), position = 'center-bottom')
+  })
+  
+  observeEvent(input$show_session, {
+    withCallingHandlers({
+      shinyjs::html(id = "stdout", "")
+      #args <- paste0(' a', ' -t ', session_selected)
+      args <- c('capture-pane', '-S', '-', '-E', '-', '-pt', session_selected())
+      
+      p <- processx::run(
+        'tmux', args = args,
+        stdout_callback = function(line, proc) {message(line)},
+        #stdout_line_callback = function(line, proc) {message(line)},
+        stderr_to_stdout = TRUE,
+        error_on_status = FALSE
+      )
+    },
+    message = function(m) {
+      shinyjs::html(id = "stdout", html = m$message, add = T);
+      #runjs("document.getElementById('stdout').parentElement.scrollTo(0,1e9);")
+      runjs("document.getElementById('stdout').parentElement.scrollTo({ top: 1e9, behavior: 'smooth' });")
+    }
+    )
+  })
+  
+  # kill session
+  observeEvent(input$kill, {
+   
+    args <- paste0('kill-session -t ', session_selected())
+    if (!is.null(row_selected())) {
+      system2('tmux', args = args)
+      notify_success(text = paste0('Session ', session_selected(), ' killed!'), position = 'center-bottom')
+    } else {
+      notify_failure('Select session first!', timeout = 2000, position = 'center-bottom')
+    }  
   })
   
 }
