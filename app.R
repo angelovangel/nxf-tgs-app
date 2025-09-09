@@ -11,6 +11,7 @@ library(digest)
 library(hover)
 library(reactable)
 
+
 bin_on_path = function(bin) {
   exit_code = suppressWarnings(system2("command", args = c("-v", bin), stdout = FALSE))
   return(exit_code == 0)
@@ -91,6 +92,12 @@ ui <- page_navbar(
 )
 
 server <- function(input, output, session) {
+  # Helper to check if pipeline is finished
+  pipeline_finished <- function(session_id) {
+    file.exists(file.path("output", session_id, "00-sample-status-summary.html"))
+  }
+
+
   # start with start deactivated, activate only when minimum args selected
   shinyjs::disable('start')
   
@@ -126,23 +133,31 @@ server <- function(input, output, session) {
     if (any(str_detect(tmuxinfo, 'no server|error'))) {
       empty_df
     } else {
-      data.frame(
+      df <- data.frame(
         session_id = str_split_i(tmuxinfo, " ", 2),
         started = str_split_i(tmuxinfo, " ", 1) %>% as.numeric() %>% as.POSIXct(),
         runtime = NA,
         results = NA
-        #command = str_split_i(tmuxinfo, " ", 5),
-        #active = str_split_i(tmuxinfo, " ", 6),
-        #attached = str_split_i(tmuxinfo, " ", 3)
-        #session_path = str_split_i(tmuxinfo, " ", 4)
       ) %>%
-        mutate(
-          runtime = difftime(Sys.time(), started, units = 'hours')
-          #attached = if_else(as.numeric(attached) == 1, 'yes', 'no')
-        ) %>%
-        arrange(started)
+      mutate(
+        runtime = difftime(Sys.time(), started, units = 'hours')
+      ) %>%
+      arrange(started)
+   
+    # Add direct download link if tarball exists
+    df$results <- vapply(df$session_id, function(id) {
+      tar_name <- paste0("output_", id, ".tar.gz")
+      tar_path <- file.path("www", tar_name)
+      if (!is.na(id) && file.exists(tar_path)) {
+        sprintf('<a href="%s" download>Download</a>', tar_name)
+      } else {
+        ""
+      }
+    }, character(1))
+    df
     }
   })
+
   
   samplesheet <- reactive({
     file <- input$upload
@@ -186,11 +201,27 @@ server <- function(input, output, session) {
       style = list(fontSize = '90%'),
       columns = list(
         started = colDef(format = colFormat(datetime = T, locales = 'en-GB')),
-        runtime = colDef(format = colFormat(suffix = ' h', digits = 2))
+        runtime = colDef(format = colFormat(suffix = ' h', digits = 2)),
+        results = colDef(html = TRUE)
       )
     )
   })
   
+  # tar whnen ready and place in www
+  observe({
+  df <- tmux_sessions()
+  for (id in df$session_id) {
+    if (!is.na(id) && pipeline_finished(id)) {
+      tar_path <- file.path("www", paste0("output_", id, ".tar.gz"))
+      outdir <- file.path("output", id)
+      if (!file.exists(tar_path) && dir.exists(outdir)) {
+        # Create tarball in www folder
+        system2("tar", args = c("-czf", tar_path, "-C", "output", id))
+      }
+    }
+  }
+})
+
   observe({
     updateReactable('table', data = tmux_sessions(), selected = row_selected())
   })
@@ -214,8 +245,8 @@ server <- function(input, output, session) {
   
   # main call
   observeEvent(input$start, {
-    session_id <- digest(runif(42), algo = 'crc32')
-    new_session_name <- paste0(session_id, "-", input$pipeline)
+    session_id <- digest(runif(1), algo = 'crc32')
+    new_session_name <- session_id #paste0(session_id, "-", input$pipeline)
     selectedFolder <- parseDirPath(volumes, input$fastq_folder)
   
     # launch new session
@@ -227,13 +258,19 @@ server <- function(input, output, session) {
       'nextflow', 'run', 'angelovangel/nxf-tgs', 
       '--fastq', selectedFolder,
       '--samplesheet', samplesheet()$datapath,
+      # allows per session cleanup
+      '--outdir', file.path('output', session_id),
       '-profile', str_flatten(input$profile, collapse = ','),
+      # allows per session cleanup
+      '-w', file.path('work', session_id),
       sep = ' Space '
       )
     if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
       tmux_command <- paste(
         'nextflow', 'run', 'angelovangel/nxf-tgs', 
+        '--outdir', file.path('output', session_id),
         '-profile', str_flatten(input$profile, collapse = ','),
+        '-w', file.path('work', session_id),
         sep = ' Space '
       )
     }
@@ -269,7 +306,7 @@ server <- function(input, output, session) {
     )
   })
   
-  # kill session
+  # kill session (and delete data)
   observeEvent(input$kill, {
    
     args <- paste0('kill-session -t ', session_selected())
