@@ -39,7 +39,8 @@ sidebar <- sidebar(
   conditionalPanel(
     condition = 'input.advanced',
     selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity', 'test'), selected = 'standard', multiple = T),
-    selectInput('nxf_ver', 'Use Nextflow version', choices = c('24.02.2', '25.04.6')),
+    selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
+    selectInput('nxf_ver', 'Use Nextflow version', choices = c('24.04.2','25.04.6')),
     textInput('assembly_args', 'Assembly arguments')
   )
 )
@@ -146,10 +147,10 @@ server <- function(input, output, session) {
    
     # Add direct download link if tarball exists
     df$results <- vapply(df$session_id, function(id) {
-      tar_name <- paste0("output_", id, ".tar.gz")
+      tar_name <- paste0(id, ".tar.gz")
       tar_path <- file.path("www", tar_name)
       if (!is.na(id) && file.exists(tar_path)) {
-        sprintf('<a href="%s" download>Download</a>', tar_name)
+        paste0('<a href="', tar_name, '" download>Download ', id, '</a>')
       } else {
         ""
       }
@@ -171,6 +172,14 @@ server <- function(input, output, session) {
     tmux_sessions()[row_selected(), ]$session_id
   })
   
+  # entry for the nextflow pipeline
+  entry <- reactive({
+    if(input$entry == 'full') {
+      ''
+    } else {
+      paste('-entry', input$entry, sep = ' Space ')
+    }
+  })
   
   # outputs
   # show selection
@@ -212,7 +221,7 @@ server <- function(input, output, session) {
   df <- tmux_sessions()
   for (id in df$session_id) {
     if (!is.na(id) && pipeline_finished(id)) {
-      tar_path <- file.path("www", paste0("output_", id, ".tar.gz"))
+      tar_path <- file.path("www", paste0(id, ".tar.gz"))
       outdir <- file.path("output", id)
       if (!file.exists(tar_path) && dir.exists(outdir)) {
         # Create tarball in www folder
@@ -255,6 +264,7 @@ server <- function(input, output, session) {
     
     # execute command in the new session - this is application-specific, everything else is common
     tmux_command <- paste(
+      paste0('NXF_VER=', input$nxf_ver),
       'nextflow', 'run', 'angelovangel/nxf-tgs', 
       '--fastq', selectedFolder,
       '--samplesheet', samplesheet()$datapath,
@@ -263,14 +273,17 @@ server <- function(input, output, session) {
       '-profile', str_flatten(input$profile, collapse = ','),
       # allows per session cleanup
       '-w', file.path('work', session_id),
+      entry(),
       sep = ' Space '
       )
     if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
       tmux_command <- paste(
+        paste0('NXF_VER=', input$nxf_ver),
         'nextflow', 'run', 'angelovangel/nxf-tgs', 
         '--outdir', file.path('output', session_id),
         '-profile', str_flatten(input$profile, collapse = ','),
         '-w', file.path('work', session_id),
+        entry(),
         sep = ' Space '
       )
     }
@@ -311,7 +324,18 @@ server <- function(input, output, session) {
    
     args <- paste0('kill-session -t ', session_selected())
     if (!is.null(row_selected())) {
+      # kill session
       system2('tmux', args = args)
+      # Remove tarball from www
+      tar_path <- file.path("www", paste0(session_selected(), ".tar.gz"))
+      if (file.exists(tar_path)) {
+        file.remove(tar_path)
+      }
+      # Remove output directory
+      outdir <- file.path("output", session_selected())
+      if (dir.exists(outdir)) {
+        unlink(outdir, recursive = TRUE)
+      }
       notify_success(text = paste0('Session ', session_selected(), ' killed!'), position = 'center-bottom')
     } else {
       notify_failure('Select session first!', timeout = 2000, position = 'center-bottom')
