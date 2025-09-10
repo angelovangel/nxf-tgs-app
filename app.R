@@ -10,12 +10,9 @@ library(shinybusy)
 library(digest)
 library(hover)
 library(reactable)
+library(prettyunits)
 
-
-bin_on_path = function(bin) {
-  exit_code = suppressWarnings(system2("command", args = c("-v", bin), stdout = FALSE))
-  return(exit_code == 0)
-}
+source('bin/global.R')
 
 sidebar <- sidebar(
   selectInput(
@@ -29,9 +26,9 @@ sidebar <- sidebar(
   shinyDirButton('fastq_folder', 'Select fastq_pass folder', title ='Please select a fastq_pass folder from a run', multiple = F),
   fileInput('upload', 'Upload sample sheet', multiple = F, accept = c('.xlsx', '.csv'), placeholder = 'xlsx or csv file'),
   
-  hover_action_button('reset', 'Reset inputs', button_animation = 'overline-reveal', icon = icon('rotate-right')),
   hover_action_button('start', 'Start pipeline', button_animation = 'overline-reveal', icon = icon('play')),
   hover_action_button('show_session', 'Show session', button_animation = 'overline-reveal', icon = icon('expand')),
+  hover_action_button('reset', 'Reset inputs', button_animation = 'overline-reveal', icon = icon('rotate-right')),
   #hover_action_button('ctrlc', 'Send ctrl-c to session', button_animation = 'overline-reveal', icon = icon('stop')),
   hover_action_button('kill', 'Kill session', button_animation = 'overline-reveal', icon = icon('xmark')),
   
@@ -39,7 +36,7 @@ sidebar <- sidebar(
   conditionalPanel(
     condition = 'input.advanced',
     selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity', 'test'), selected = 'standard', multiple = T),
-    selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
+    #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
     selectInput('nxf_ver', 'Use Nextflow version', choices = c('24.04.2','25.04.6')),
     textInput('assembly_args', 'Assembly arguments')
   )
@@ -93,12 +90,7 @@ ui <- page_navbar(
 )
 
 server <- function(input, output, session) {
-  # Helper to check if pipeline is finished
-  pipeline_finished <- function(session_id) {
-    file.exists(file.path("output", session_id, "00-sample-status-summary.html"))
-  }
-
-
+  
   # start with start deactivated, activate only when minimum args selected
   shinyjs::disable('start')
   
@@ -114,8 +106,11 @@ server <- function(input, output, session) {
   
   empty_df <- data.frame(
     session_id = NA,
+    pipeline = NA,
     started = NA,
     runtime = NA,
+    pipeline_runtime = NA,
+    status = NA,
     results = NA
     #command = NA,
     #active = NA,
@@ -124,11 +119,21 @@ server <- function(input, output, session) {
   )
   
   # reactives
+  autoInvalidate <- reactiveTimer(3000) 
+  nxflog <- tempfile(fileext = ".csv")
+  
+  # write nxf log
+  observe({
+    autoInvalidate()
+    write_nxf_status(nxflog)
+  })
+  
   tmux_sessions <- reactive({
-    invalidateLater(2000, session)
+    invalidateLater(3000, session)
     oldw <- getOption("warn")
     options(warn = -1)
-    tmuxinfo <- system2("bin/helper.sh", stdout = TRUE, stderr = TRUE)
+    tmuxinfo <- system2("bin/tmux-info.sh", stdout = TRUE, stderr = TRUE)
+    nxf_info <- read.csv(nxflog, header = T)
     options(warn = oldw)
     
     if (any(str_detect(tmuxinfo, 'no server|error'))) {
@@ -136,15 +141,28 @@ server <- function(input, output, session) {
     } else {
       df <- data.frame(
         session_id = str_split_i(tmuxinfo, " ", 2),
+        pipeline = NA,
         started = str_split_i(tmuxinfo, " ", 1) %>% as.numeric() %>% as.POSIXct(),
         runtime = NA,
+        pipeline_runtime = NA,
+        status = NA,
         results = NA
-      ) %>%
-      mutate(
-        runtime = difftime(Sys.time(), started, units = 'hours')
+      )
+   
+    # add status etc from nxflog
+    df$status <- sapply(df$session_id, function(x) { nxf_info[str_detect(nxf_info$COMMAND, x), ]$STATUS %>% str_trim() })
+    df$pipeline_runtime = sapply(df$session_id, function(x) { nxf_info[str_detect(nxf_info$COMMAND, x), ]$DURATION })
+    df$pipeline = sapply(df$session_id, function(x) {
+      command <- nxf_info[str_detect(nxf_info$COMMAND, x), ]$COMMAND
+      str_extract(command, "(?<=--pipeline\\s)\\S+") 
+    }) 
+    
+    df <- df %>% mutate(
+        status = ifelse(str_detect(status, "-"), "RUNNING", status),
+        runtime = prettyunits::pretty_dt(difftime(Sys.time(), started), compact = T)
       ) %>%
       arrange(started)
-   
+    
     # Add direct download link if tarball exists
     df$results <- vapply(df$session_id, function(id) {
       tar_name <- paste0(id, ".tar.gz")
@@ -173,13 +191,13 @@ server <- function(input, output, session) {
   })
   
   # entry for the nextflow pipeline
-  entry <- reactive({
-    if(input$entry == 'full') {
-      ''
-    } else {
-      paste('-entry', input$entry, sep = ' Space ')
-    }
-  })
+  # entry <- reactive({
+  #   if(input$entry == 'full') {
+  #     ''
+  #   } else {
+  #     paste('-entry', input$entry, sep = ' Space ')
+  #   }
+  # })
   
   # outputs
   # show selection
@@ -201,7 +219,7 @@ server <- function(input, output, session) {
   output$table <- renderReactable({
     reactable(
       empty_df,
-      #tmux_sessions(), 
+      #tmux_sessions(),
       pagination = FALSE, highlight = TRUE, height = 200, compact = T, 
       fullWidth = T, selection = 'single', onClick = 'select', defaultSelected = 1,
       theme = reactableTheme(
@@ -210,7 +228,6 @@ server <- function(input, output, session) {
       style = list(fontSize = '90%'),
       columns = list(
         started = colDef(format = colFormat(datetime = T, locales = 'en-GB')),
-        runtime = colDef(format = colFormat(suffix = ' h', digits = 2)),
         results = colDef(html = TRUE)
       )
     )
@@ -266,6 +283,7 @@ server <- function(input, output, session) {
     tmux_command <- paste(
       paste0('NXF_VER=', input$nxf_ver),
       'nextflow', 'run', 'angelovangel/nxf-tgs', 
+      '--pipeline', input$pipeline,
       '--fastq', selectedFolder,
       '--samplesheet', samplesheet()$datapath,
       # allows per session cleanup
@@ -273,17 +291,18 @@ server <- function(input, output, session) {
       '-profile', str_flatten(input$profile, collapse = ','),
       # allows per session cleanup
       '-w', file.path('work', session_id),
-      entry(),
+      #'-name', paste0(session_id, '_', session_id), # use for nextflow log to get status etc
       sep = ' Space '
       )
     if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
       tmux_command <- paste(
         paste0('NXF_VER=', input$nxf_ver),
         'nextflow', 'run', 'angelovangel/nxf-tgs', 
+        '--pipeline', input$pipeline,
         '--outdir', file.path('output', session_id),
         '-profile', str_flatten(input$profile, collapse = ','),
         '-w', file.path('work', session_id),
-        entry(),
+        #'-name', paste0(session_id, '_', session_id), # use for nextflow log to get status etc
         sep = ' Space '
       )
     }
@@ -326,13 +345,21 @@ server <- function(input, output, session) {
     if (!is.null(row_selected())) {
       # kill session
       system2('tmux', args = args)
+      
       # Remove tarball from www
       tar_path <- file.path("www", paste0(session_selected(), ".tar.gz"))
       if (file.exists(tar_path)) {
         file.remove(tar_path)
       }
+      
       # Remove output directory
       outdir <- file.path("output", session_selected())
+      if (dir.exists(outdir)) {
+        unlink(outdir, recursive = TRUE)
+      }
+      
+      # Remove work directory
+      outdir <- file.path("work", session_selected())
       if (dir.exists(outdir)) {
         unlink(outdir, recursive = TRUE)
       }

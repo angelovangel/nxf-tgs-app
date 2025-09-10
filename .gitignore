@@ -53,6 +53,7 @@ rsconnect/
 work
 output
 .DS_Store
-www
+www/*.tar.gz
+
 
 
