@@ -15,6 +15,7 @@ library(prettyunits)
 source('bin/global.R')
 
 sidebar <- sidebar(
+  shiny::div(id = 'inputs',
   selectInput(
     'pipeline', 'Select workflow', 
     choices = c(
@@ -24,7 +25,8 @@ sidebar <- sidebar(
     selected = 'wf-clone-validation'),
   # fastq_pass folder
   shinyDirButton('fastq_folder', 'Select fastq_pass folder', title ='Please select a fastq_pass folder from a run', multiple = F),
-  fileInput('upload', 'Upload sample sheet', multiple = F, accept = c('.xlsx', '.csv'), placeholder = 'xlsx or csv file'),
+  fileInput('upload', 'Upload sample sheet', multiple = F, accept = c('.xlsx', '.csv'), placeholder = 'xlsx or csv file')
+  ),
   
   hover_action_button('start', 'Start pipeline', button_animation = 'overline-reveal', icon = icon('play')),
   hover_action_button('show_session', 'Show session', button_animation = 'overline-reveal', icon = icon('expand')),
@@ -119,10 +121,10 @@ server <- function(input, output, session) {
   )
   
   # reactives
-  autoInvalidate <- reactiveTimer(3000) 
   nxflog <- tempfile(fileext = ".csv")
   
   # write nxf log
+  autoInvalidate <- reactiveTimer(3000) 
   observe({
     autoInvalidate()
     write_nxf_status(nxflog)
@@ -234,10 +236,12 @@ server <- function(input, output, session) {
   })
   
   # tar whnen ready and place in www
+  # decide if ready by looking at the nxflog (OK for finished)
   observe({
   df <- tmux_sessions()
   for (id in df$session_id) {
-    if (!is.na(id) && pipeline_finished(id)) {
+    #if (!is.na(id) && pipeline_finished(id)) {
+    if ( !is.na(id) && (df[df$session_id == id, ]$status == 'OK') ) {
       tar_path <- file.path("www", paste0(id, ".tar.gz"))
       outdir <- file.path("output", id)
       if (!file.exists(tar_path) && dir.exists(outdir)) {
@@ -260,7 +264,10 @@ server <- function(input, output, session) {
   
   observeEvent(input$profile, {
     if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
+      shinyjs::hide('inputs')
       shinyjs::enable('start')
+    } else {
+      shinyjs::show('inputs')
     }
   })
   

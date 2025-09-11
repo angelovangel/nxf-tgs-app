@@ -18,6 +18,6 @@ write_nxf_status <- function(file) {
     write.csv(data.frame(COMMAND = NA, DURATION = NA, STATUS = NA), file = file) 
   } else {
     logt <- read.table(text = log, header = T, sep = "\t")
-    write.csv(logt, file = file, append = F)  
+    write.csv(logt, file = file)  
   }
 }
