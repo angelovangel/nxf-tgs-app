@@ -33,14 +33,19 @@ sidebar <- sidebar(
   hover_action_button('reset', 'Reset inputs', button_animation = 'overline-reveal', icon = icon('rotate-right')),
   #hover_action_button('ctrlc', 'Send ctrl-c to session', button_animation = 'overline-reveal', icon = icon('stop')),
   hover_action_button('kill', 'Kill session', button_animation = 'overline-reveal', icon = icon('xmark')),
-  
+  conditionalPanel(
+    condition = ("input.pipeline == 'wf-clone-validation'"),
+    selectInput('assembly_tool', 'Assembly tool', choices = c('flye', 'canu'), selected = 'flye'),
+    checkboxInput('large_construct', 'Large construct (no filter)', value = F)
+  ),
   checkboxInput('advanced', 'Advanced settings', value = FALSE),
   conditionalPanel(
     condition = 'input.advanced',
-    selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity', 'test'), selected = 'singularity', multiple = T),
+    selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity'), selected = 'singularity', multiple = F),
     #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
+    checkboxInput('test', 'Run with test data', value = F),
     selectInput('nxf_ver', 'Use Nextflow version', choices = c('24.04.2','25.04.6')),
-    textInput('assembly_args', 'Assembly arguments')
+    textInput('additional_args', 'Additional arguments (passed to epi2me wf)')
   ),
   verbatimTextOutput('nxf_tgs_version')
 )
@@ -129,7 +134,7 @@ server <- function(input, output, session) {
     #session_path = NA
   )
   
-  # reactives
+  ### REACTIVES ###
   nxflog <- tempfile(fileext = ".csv")
   
   # write nxf log
@@ -209,16 +214,21 @@ server <- function(input, output, session) {
     tmux_sessions()[row_selected(), ]$session_id
   })
   
-  # entry for the nextflow pipeline
-  # entry <- reactive({
-  #   if(input$entry == 'full') {
-  #     ''
-  #   } else {
-  #     paste('-entry', input$entry, sep = ' Space ')
-  #   }
-  # })
+  # this has to be "--assembly_tool canu --large_construct" # note the quotes
+  assembly_args <- reactive({
+  if (input$pipeline == 'wf-clone-validation') {
+    paste0(
+      '"', 
+      paste('--assembly_tool', input$assembly_tool, if (input$large_construct) '--large_construct' else '', sep = ' '), 
+      '"'
+    )
+  } else {
+    ""
+  }
+})
   
-  # outputs
+  
+  ### OUTPUTS ###
   # show selection
   output$stdout <- renderText({
     #req(samplesheet())
@@ -231,7 +241,7 @@ server <- function(input, output, session) {
       "pipeline: ", input$pipeline, "\n",
       "fastq path: ", path, "\n",
       "samplesheet: ", samplesheet()$name, "\n",
-      "profile: ", str_flatten(input$profile, collapse = ","), "\n"
+      "profile: ", ifelse(input$test, paste(input$profile, 'test', sep = ","), input$profile), "\n"
     )
   })
   
@@ -279,8 +289,8 @@ server <- function(input, output, session) {
     }
   })
   
-  observeEvent(input$profile, {
-    if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
+  observeEvent(input$test, {
+    if(input$test) {
       shinyjs::hide('inputs')
       shinyjs::enable('start')
     } else {
@@ -292,6 +302,7 @@ server <- function(input, output, session) {
   observeEvent(input$reset, {
     session$reload()
   })
+  
   
   # main call
   observeEvent(input$start, {
@@ -312,25 +323,28 @@ server <- function(input, output, session) {
       '--samplesheet', samplesheet()$datapath,
       # allows per session cleanup
       '--outdir', file.path('output', session_id),
-      '-profile', str_flatten(input$profile, collapse = ','),
+      '--assembly_args', assembly_args(), # these are given as "--large_construct --assembly_tool canu"
+      '-profile', input$profile,
       # allows per session cleanup
       '-w', file.path('work', session_id),
       #'-name', paste0(session_id, '_', session_id), # use for nextflow log to get status etc
-      sep = ' Space '
+      sep = ' '
       )
-    if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
+    #if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
+    if(input$test) {
       tmux_command <- paste(
         paste0('NXF_VER=', input$nxf_ver),
         'nextflow', 'run', 'angelovangel/nxf-tgs', 
         '--pipeline', input$pipeline,
         '--outdir', file.path('output', session_id),
-        '-profile', str_flatten(input$profile, collapse = ','),
+        '--assembly_args', assembly_args(), 
+        '-profile',  paste(input$profile, 'test', sep = ","),
         '-w', file.path('work', session_id),
         #'-name', paste0(session_id, '_', session_id), # use for nextflow log to get status etc
-        sep = ' Space '
+        sep = ' '
       )
     }
-    
+    tmux_command <- paste0("'", tmux_command, "'") # wrap the whole command in single quotes
     args2 <- c('send-keys', '-t', new_session_name, tmux_command, 'C-m')
     system2('tmux', args = args2)
       # '-c', 'Space', samplesheet()$datapath, 'Space', '-w', 'Space', input$pipeline, 'Space', '-n', 'Space', 
