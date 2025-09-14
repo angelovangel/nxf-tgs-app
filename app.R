@@ -37,7 +37,7 @@ sidebar <- sidebar(
   checkboxInput('advanced', 'Advanced settings', value = FALSE),
   conditionalPanel(
     condition = 'input.advanced',
-    selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity', 'test'), selected = 'standard', multiple = T),
+    selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity', 'test'), selected = 'singularity', multiple = T),
     #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
     selectInput('nxf_ver', 'Use Nextflow version', choices = c('24.04.2','25.04.6')),
     textInput('assembly_args', 'Assembly arguments')
@@ -161,7 +161,14 @@ server <- function(input, output, session) {
       )
    
     # add status etc from nxflog
-    df$status <- sapply(df$session_id, function(x) { nxf_info[str_detect(nxf_info$COMMAND, x), ]$STATUS %>% str_trim() })
+    df$status <- sapply(df$session_id, function(x) {
+      status_vec <- nxf_info[str_detect(nxf_info$COMMAND, x), ]$STATUS
+      if (length(status_vec) == 0) {
+        "STARTING"
+      } else {
+        str_trim(status_vec)
+      }
+    })
     df$status <- as.character(df$status) # avoid a warning if status is not atomic
     df$pipeline_runtime = sapply(df$session_id, function(x) { nxf_info[str_detect(nxf_info$COMMAND, x), ]$DURATION })
     df$pipeline = sapply(df$session_id, function(x) {
