@@ -41,7 +41,8 @@ sidebar <- sidebar(
     #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
     selectInput('nxf_ver', 'Use Nextflow version', choices = c('24.04.2','25.04.6')),
     textInput('assembly_args', 'Assembly arguments')
-  )
+  ),
+  verbatimTextOutput('nxf_tgs_version')
 )
 
 ui <- page_navbar(
@@ -58,7 +59,7 @@ ui <- page_navbar(
     ),
     tags$span(
       #icon('align-center'),
-      "Nextflow pipeline for ONT merge/rename, report generation, and de novo plasmid/amplicon assembly at BCL", 
+      "Nextflow pipeline for ONT merge/rename, report generation, and de novo plasmid/amplicon assembly at BCL",
       #icon('align-center'),
       style = "font-size: 0.9rem; font-weight: normal; margin-left: 7em; color: #701705;"
     )
@@ -98,6 +99,14 @@ server <- function(input, output, session) {
   
   default_path <- Sys.getenv('DEFAULT_PATH')
   volumes <- c(ont_data = default_path, getVolumes()())
+  get_nxftgs_ver <- paste0(
+    "git ls-remote ", "https://github.com/angelovangel/nxf-tgs.git", " HEAD | awk '{print substr($1, 1, 8)}'"
+  ) 
+  
+  # nxftgs_ver <- system(get_nxftgs_ver, intern = T)
+  # output$nxf_tgs_version <- renderText({
+  #   paste0("nxf-tgs commit: " , nxftgs_ver)
+  #   })
   
   shinyDirChoose(
     input, 
@@ -153,6 +162,7 @@ server <- function(input, output, session) {
    
     # add status etc from nxflog
     df$status <- sapply(df$session_id, function(x) { nxf_info[str_detect(nxf_info$COMMAND, x), ]$STATUS %>% str_trim() })
+    df$status <- as.character(df$status) # avoid a warning if status is not atomic
     df$pipeline_runtime = sapply(df$session_id, function(x) { nxf_info[str_detect(nxf_info$COMMAND, x), ]$DURATION })
     df$pipeline = sapply(df$session_id, function(x) {
       command <- nxf_info[str_detect(nxf_info$COMMAND, x), ]$COMMAND
@@ -240,8 +250,8 @@ server <- function(input, output, session) {
   observe({
   df <- tmux_sessions()
   for (id in df$session_id) {
-    #if (!is.na(id) && pipeline_finished(id)) {
-    if ( !is.na(id) && (df[df$session_id == id, ]$status == 'OK') ) {
+    if (!is.na(id) && pipeline_finished(df = df, id = id)) {
+    #if ( !is.na(id) && (df[df$session_id == id, ]$status == 'OK') ) {
       tar_path <- file.path("www", paste0(id, ".tar.gz"))
       outdir <- file.path("output", id)
       if (!file.exists(tar_path) && dir.exists(outdir)) {

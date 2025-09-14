@@ -4,9 +4,14 @@ bin_on_path = function(bin) {
   return(exit_code == 0)
 }
 
-# Helper to check if pipeline is finished
-pipeline_finished <- function(session_id) {
-  file.exists(file.path("output", session_id, "00-sample-status-summary.html"))
+# Helper to check if pipeline is finished, based on the tmux_sessions() df
+pipeline_finished <- function(id, df) {
+  if (df[df$session_id == id, ]$status == 'OK') {
+    TRUE
+  } else {
+    FALSE
+  }
+  #file.exists(file.path("output", session_id, "00-sample-status-summary.html"))
 }
 
 
