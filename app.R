@@ -15,7 +15,7 @@ library(prettyunits)
 source('bin/global.R')
 
 sidebar <- sidebar(
-  shiny::div(id = 'inputs',
+ 
   selectInput(
     'pipeline', 'Select workflow', 
     choices = c(
@@ -23,6 +23,8 @@ sidebar <- sidebar(
       'Amplicon assembly' = 'wf-amplicon', 
       'Merge/rename + report' = 'report-only'), 
     selected = 'wf-clone-validation'),
+  
+  shiny::div(id = 'inputs',
   # fastq_pass folder
   shinyDirButton('fastq_folder', 'Select fastq_pass folder', title ='Please select a fastq_pass folder from a run', multiple = F),
   fileInput('upload', 'Upload sample sheet', multiple = F, accept = c('.xlsx', '.csv'), placeholder = 'xlsx or csv file')
@@ -177,9 +179,16 @@ server <- function(input, output, session) {
     df$status <- sapply(df$session_id, function(x) {
       status_info <- nxf_info[str_detect(nxf_info$COMMAND, x), ]$STATUS
       if (length(status_info) == 0) {
-        "<a style='color:green';> STARTING </a>"
+        "<a style='color:orange';> STARTING </a>"
+      } else if (str_trim(status_info) == "-") {
+        "<a style='color:orange;'> RUNNING </a>"
+      } else if (str_trim(status_info) == "OK") {
+        #"OK"
+        "<a style='color:green;'> OK </a>"
+      } else if(str_trim(status_info) == "ERR") {
+        "<a style='color:red;'> ERR </a>"
       } else {
-        str_trim(status_info)
+        status_info
       }
     })
     df$status <- as.character(df$status) # avoid a warning if status is not atomic

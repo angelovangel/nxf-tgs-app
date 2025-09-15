@@ -6,7 +6,7 @@ bin_on_path = function(bin) {
 
 # Helper to check if pipeline is finished, based on the tmux_sessions() df
 pipeline_finished <- function(id, df) {
-  if (df[df$session_id == id, ]$status == 'OK') {
+  if (str_detect(df[df$session_id == id, ]$status, 'OK')) {
     TRUE
   } else {
     FALSE
