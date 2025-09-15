@@ -19,9 +19,9 @@ sidebar <- sidebar(
   selectInput(
     'pipeline', 'Select workflow', 
     choices = c(
-      'Plasmid assemly' = 'wf-clone-validation', 
+      'Plasmid assembly' = 'wf-clone-validation', 
       'Amplicon assembly' = 'wf-amplicon', 
-      'Report only' = 'report-only'), 
+      'Merge/rename + report' = 'report-only'), 
     selected = 'wf-clone-validation'),
   # fastq_pass folder
   shinyDirButton('fastq_folder', 'Select fastq_pass folder', title ='Please select a fastq_pass folder from a run', multiple = F),
@@ -33,11 +33,19 @@ sidebar <- sidebar(
   hover_action_button('reset', 'Reset inputs', button_animation = 'overline-reveal', icon = icon('rotate-right')),
   #hover_action_button('ctrlc', 'Send ctrl-c to session', button_animation = 'overline-reveal', icon = icon('stop')),
   hover_action_button('kill', 'Kill session', button_animation = 'overline-reveal', icon = icon('xmark')),
+  
+  # plasmid-specific options
   conditionalPanel(
     condition = ("input.pipeline == 'wf-clone-validation'"),
     selectInput('assembly_tool', 'Assembly tool', choices = c('flye', 'canu'), selected = 'flye'),
     checkboxInput('large_construct', 'Large construct (no filter)', value = F)
   ),
+  # amplicon-specific options
+  conditionalPanel(
+    condition = ("input.pipeline == 'wf-amplicon'"),
+    numericInput('min_read_len', 'Min read length', min = 50, max = 50000, value = 300)
+  ),
+  
   checkboxInput('advanced', 'Advanced settings', value = FALSE),
   conditionalPanel(
     condition = 'input.advanced',
@@ -45,7 +53,7 @@ sidebar <- sidebar(
     #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
     checkboxInput('test', 'Run with test data', value = F),
     selectInput('nxf_ver', 'Use Nextflow version', choices = c('24.04.2','25.04.6')),
-    textInput('additional_args', 'Additional arguments (passed to epi2me wf)')
+    textInput('additional_args', label = HTML("Additional arguments <br>(passed to epi2me wf)"))
   ),
   verbatimTextOutput('nxf_tgs_version')
 )
@@ -167,11 +175,11 @@ server <- function(input, output, session) {
    
     # add status etc from nxflog
     df$status <- sapply(df$session_id, function(x) {
-      status_vec <- nxf_info[str_detect(nxf_info$COMMAND, x), ]$STATUS
-      if (length(status_vec) == 0) {
-        "STARTING"
+      status_info <- nxf_info[str_detect(nxf_info$COMMAND, x), ]$STATUS
+      if (length(status_info) == 0) {
+        "<a style='color:green';> STARTING </a>"
       } else {
-        str_trim(status_vec)
+        str_trim(status_info)
       }
     })
     df$status <- as.character(df$status) # avoid a warning if status is not atomic
@@ -219,7 +227,23 @@ server <- function(input, output, session) {
   if (input$pipeline == 'wf-clone-validation') {
     paste0(
       '"', 
-      paste('--assembly_tool', input$assembly_tool, if (input$large_construct) '--large_construct' else '', sep = ' '), 
+      paste(
+        '--assembly_tool', input$assembly_tool, 
+        if (input$large_construct) '--large_construct' else '',
+        input$additional_args,
+        sep = ' '
+      ), 
+      '"'
+    )
+  } else if (input$pipeline == 'wf-amplicon') {
+    paste0(
+      '"', 
+      paste(
+        '--min_read_length', 
+        input$min_read_len, 
+        input$additional_args, 
+        sep = ' '
+      ), 
       '"'
     )
   } else {
@@ -257,9 +281,14 @@ server <- function(input, output, session) {
       style = list(fontSize = '90%'),
       columns = list(
         started = colDef(format = colFormat(datetime = T, locales = 'en-GB')),
-        results = colDef(html = TRUE)
+        results = colDef(html = TRUE),
+        status = colDef(html = TRUE)
       )
     )
+  })
+  
+  observe({
+    updateReactable('table', data = tmux_sessions(), selected = row_selected())
   })
   
   # tar whnen ready and place in www
@@ -279,10 +308,6 @@ server <- function(input, output, session) {
   }
 })
 
-  observe({
-    updateReactable('table', data = tmux_sessions(), selected = row_selected())
-  })
-  
   observe({
     if(!is.integer(input$fastq_folder)) {
       shinyjs::enable('start')
@@ -347,9 +372,6 @@ server <- function(input, output, session) {
     tmux_command <- paste0("'", tmux_command, "'") # wrap the whole command in single quotes
     args2 <- c('send-keys', '-t', new_session_name, tmux_command, 'C-m')
     system2('tmux', args = args2)
-      # '-c', 'Space', samplesheet()$datapath, 'Space', '-w', 'Space', input$pipeline, 'Space', '-n', 'Space', 
-      # new_session_name, 'Space', htmlreport, 'Space', mapping, 'Space', singularity, 'Space', transfer, 'Space', 
-      # largeconstruct, 'Space', noassembly, 'Space', assembly_tool, sep = ' '
     
     notify_success(text = paste0('Started session: ', session_id), position = 'center-bottom')
   })
