@@ -32,9 +32,10 @@ sidebar <- sidebar(
   
   hover_action_button('start', 'Start pipeline', button_animation = 'overline-reveal', icon = icon('play')),
   hover_action_button('show_session', 'Show session', button_animation = 'overline-reveal', icon = icon('expand')),
+  hover_action_button('show_urls', 'Show user data URLs', button_animation = 'overline-reveal'),
   hover_action_button('reset', 'Reset inputs', button_animation = 'overline-reveal', icon = icon('rotate-right')),
   #hover_action_button('ctrlc', 'Send ctrl-c to session', button_animation = 'overline-reveal', icon = icon('stop')),
-  hover_action_button('kill', 'Kill session', button_animation = 'overline-reveal', icon = icon('xmark')),
+  hover_action_button('kill', 'Kill session', button_animation = 'overline-reveal', icon = icon('xmark'), style = 'color:#F54927;'),
   
   # plasmid-specific options
   conditionalPanel(
@@ -45,7 +46,7 @@ sidebar <- sidebar(
   # amplicon-specific options
   conditionalPanel(
     condition = ("input.pipeline == 'wf-amplicon'"),
-    numericInput('min_read_len', 'Min read length', min = 50, max = 50000, value = 300)
+    numericInput('min_read_len', 'Min read length', min = 50, max = 10000, value = 300)
   ),
   
   checkboxInput('advanced', 'Advanced settings', value = FALSE),
@@ -405,6 +406,35 @@ server <- function(input, output, session) {
       runjs("document.getElementById('stdout').parentElement.scrollTo({ top: 1e9, behavior: 'smooth' });")
     }
     )
+  })
+  
+  # copy to miniserve/ and show user URLs
+  # miniserve -v -I miniserve/ > miniserve/miniserve.log 2>&1 &
+  observeEvent(input$show_urls, {
+    withCallingHandlers({
+      shinyjs::html(id = 'stdout', '')
+      
+      miniserver <- 'http://10.74.122.11:8080/'
+      df <- tmux_sessions()
+      id <- session_selected()
+      
+      if (!is.na(id) && pipeline_finished(df = df, id = id)) {
+        usersdirs <- list.dirs(paste0('output/', id), recursive = F)
+        users <- fs::path_file(usersdirs)
+        for (u in users) {
+          tar_name <- paste0(id, '-', u, '-', digest(paste0(id,u), algo = 'crc32'), '.tar.gz') #keeps randomid same for a sessionid-user combo
+          tar_path <- file.path('miniserve', tar_name) #keeps randomid same for a sessionid-user combo
+          # create tar for each user
+          if (!file.exists(tar_path) && dir.exists('miniserve')) {
+            #cat(file.path('output', id, u))
+            system2('tar', args = c('-czf', tar_path, '-C', 'output', file.path(id, u))) 
+          }
+          shinyjs::html('stdout', paste0(miniserver, tar_name, '\n'), add = T)
+        } 
+      } else {
+        shinyjs::html('stdout', 'Pipeline not finished or no session selected!', add = F)    
+      }
+    })
   })
   
   # kill session (and delete data)

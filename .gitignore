@@ -54,6 +54,9 @@ work
 output
 .DS_Store
 www/*.tar.gz
+miniserve/*.tar.gz
+miniserve/*.zip
+
 
 
 

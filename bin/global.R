@@ -6,7 +6,8 @@ bin_on_path = function(bin) {
 
 # Helper to check if pipeline is finished, based on the tmux_sessions() df
 pipeline_finished <- function(id, df) {
-  if (str_detect(df[df$session_id == id, ]$status, 'OK')) {
+  status_val <- df[df$session_id == id, ]$status
+  if (length(status_val) > 0 && !is.na(status_val) && str_detect(status_val, 'OK')) {
     TRUE
   } else {
     FALSE
@@ -26,3 +27,4 @@ write_nxf_status <- function(file) {
     write.csv(logt, file = file)  
   }
 }
+
