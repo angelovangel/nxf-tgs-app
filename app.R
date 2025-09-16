@@ -13,6 +13,7 @@ library(reactable)
 library(prettyunits)
 
 source('bin/global.R')
+ip <- system("ifconfig | grep 'inet ' | grep -v 127.0.0.1 | awk '{print $2}' | head -n 1", intern = TRUE)
 
 sidebar <- sidebar(
  
@@ -414,7 +415,7 @@ server <- function(input, output, session) {
     withCallingHandlers({
       shinyjs::html(id = 'stdout', '')
       
-      miniserver <- 'http://10.74.122.11:8080/'
+      miniserver <- ip
       df <- tmux_sessions()
       id <- session_selected()
       
@@ -429,7 +430,7 @@ server <- function(input, output, session) {
             #cat(file.path('output', id, u))
             system2('tar', args = c('-czf', tar_path, '-C', 'output', file.path(id, u))) 
           }
-          shinyjs::html('stdout', paste0(miniserver, tar_name, '\n'), add = T)
+          shinyjs::html('stdout', paste0('http://', miniserver, ":8080/",tar_name, '\n'), add = T)
         } 
       } else {
         shinyjs::html('stdout', 'Pipeline not finished or no session selected!', add = F)    
