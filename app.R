@@ -382,6 +382,8 @@ server <- function(input, output, session) {
     }
     tmux_command <- paste0("'", tmux_command, "'") # wrap the whole command in single quotes
     args2 <- c('send-keys', '-t', new_session_name, tmux_command, 'C-m')
+    
+    write(paste0(Sys.time(), " ", tmux_command), file = "logs/nxf-runs.log", append = TRUE)
     system2('tmux', args = args2)
     
     notify_success(text = paste0('Started session: ', session_id), position = 'center-bottom')
@@ -422,6 +424,11 @@ server <- function(input, output, session) {
       if (!is.na(id) && pipeline_finished(df = df, id = id)) {
         usersdirs <- list.dirs(paste0('output/', id), recursive = F)
         users <- fs::path_file(usersdirs)
+        shinyjs::html(
+          'stdout', 
+          paste0('Analysis contains ', length(users), ' users. Datashare URLs:\n------------------------------------\n'), 
+          add = T)
+        
         for (u in users) {
           tar_name <- paste0(id, '-', u, '-', digest(paste0(id,u), algo = 'crc32'), '.tar.gz') #keeps randomid same for a sessionid-user combo
           tar_path <- file.path('miniserve', tar_name) #keeps randomid same for a sessionid-user combo
