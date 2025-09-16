@@ -426,7 +426,11 @@ server <- function(input, output, session) {
         users <- fs::path_file(usersdirs)
         shinyjs::html(
           'stdout', 
-          paste0('Analysis contains ', length(users), ' users. Datashare URLs:\n------------------------------------\n'), 
+          paste0(
+            'Analysis contains ', length(users), 
+            ' users. Datashare URLs:\n',
+            '------------------------------------\n'
+            ), 
           add = T)
         
         for (u in users) {
@@ -438,7 +442,17 @@ server <- function(input, output, session) {
             system2('tar', args = c('-czf', tar_path, '-C', 'output', file.path(id, u))) 
           }
           shinyjs::html('stdout', paste0('http://', miniserver, ":8080/",tar_name, '\n'), add = T)
-        } 
+        }
+        
+        myfile <- list.files(path = 'miniserve', pattern = id, full.names = T)[1]
+        finfo <- file.info(myfile)
+        expdays <- difftime(finfo$mtime+(60*60*24*14), finfo$mtime, units = 'days') %>% as.numeric()
+        
+        shinyjs::html('stdout', paste0(
+          '------------------------------------\n(will expire in ',
+          expdays, ' days)'
+        ), add = T)
+        
       } else {
         shinyjs::html('stdout', 'Pipeline not finished or no session selected!', add = F)    
       }
