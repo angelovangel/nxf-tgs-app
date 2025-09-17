@@ -347,8 +347,8 @@ server <- function(input, output, session) {
     new_session_name <- session_id #paste0(session_id, "-", input$pipeline)
     selectedFolder <- parseDirPath(volumes, input$fastq_folder)
   
-    # launch new session
-    args1 <- c('new', '-d', '-s', new_session_name, '-x', '120', '-y', '30')
+    # launch new clean! session
+    args1 <- c('new', '-d', '-s', new_session_name, '-x', '120', '-y', '30', "'bash --login'") # add 'bash --login' to prevent R from inheriting from previous tmux sessions?
     system2('tmux', args = args1)
     
     # execute command in the new session - this is application-specific, everything else is common
@@ -434,7 +434,7 @@ server <- function(input, output, session) {
         
         myfile <- list.files(path = 'miniserve', pattern = id, full.names = T)[1]
         finfo <- file.info(myfile)
-        expdays <- difftime(finfo$mtime+(60*60*24*14), finfo$mtime, units = 'days') %>% as.numeric()
+        expdays <- difftime(finfo$mtime+(60*60*24*14), Sys.time(), units = 'days') %>% as.numeric() %>% round()
         
         shinyjs::html('stdout', paste0(
           '------------------------------------\n(will expire in ',
