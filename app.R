@@ -56,7 +56,7 @@ sidebar <- sidebar(
     selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity'), selected = 'singularity', multiple = F),
     #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
     checkboxInput('test', 'Run with test data', value = F),
-    selectInput('nxf_ver', 'Use Nextflow version', choices = c('24.04.2','25.04.6')),
+    selectInput('nxf_ver', 'NXF version (for epi2me wf)', choices = c('24.04.2', '24.10.9', '25.04.6'), selected = '24.10.9'),
     textInput('additional_args', label = HTML("Additional arguments <br>(passed to epi2me wf)"))
   ),
   verbatimTextOutput('nxf_tgs_version')
@@ -353,13 +353,14 @@ server <- function(input, output, session) {
     
     # execute command in the new session - this is application-specific, everything else is common
     tmux_command <- paste(
-      paste0('NXF_VER=', input$nxf_ver),
+      #paste0('NXF_VER=', input$nxf_ver),
       'nextflow', 'run', 'angelovangel/nxf-tgs', 
       '--pipeline', input$pipeline,
       ifelse(input$test, '', paste0('--fastq ', selectedFolder)),
       ifelse(input$test, '', paste0('--samplesheet ', samplesheet()$datapath)),
       # allows per session cleanup
       '--outdir', file.path('output', session_id),
+      '--nxf_ver', input$nxf_ver,
       '--assembly_args', assembly_args(), # these are given as "--large_construct --assembly_tool canu"
       ifelse(input$test,  paste0('-profile ' , paste(input$profile, 'test', sep = ",")), paste0('-profile ', input$profile)),
       # allows per session cleanup
