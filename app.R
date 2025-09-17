@@ -276,7 +276,8 @@ server <- function(input, output, session) {
       "pipeline: ", input$pipeline, "\n",
       "fastq path: ", path, "\n",
       "samplesheet: ", samplesheet()$name, "\n",
-      "profile: ", ifelse(input$test, paste(input$profile, 'test', sep = ","), input$profile), "\n"
+      "profile: ", ifelse(input$test, paste(input$profile, 'test', sep = ","), input$profile), "\n",
+      "assembly_args: ", assembly_args(), "\n"
     )
   })
   
@@ -355,31 +356,18 @@ server <- function(input, output, session) {
       paste0('NXF_VER=', input$nxf_ver),
       'nextflow', 'run', 'angelovangel/nxf-tgs', 
       '--pipeline', input$pipeline,
-      '--fastq', selectedFolder,
-      '--samplesheet', samplesheet()$datapath,
+      ifelse(input$test, '', paste0('--fastq ', selectedFolder)),
+      ifelse(input$test, '', paste0('--samplesheet ', samplesheet()$datapath)),
       # allows per session cleanup
       '--outdir', file.path('output', session_id),
       '--assembly_args', assembly_args(), # these are given as "--large_construct --assembly_tool canu"
-      '-profile', input$profile,
+      ifelse(input$test,  paste0('-profile ' , paste(input$profile, 'test', sep = ",")), paste0('-profile ', input$profile)),
       # allows per session cleanup
       '-w', file.path('work', session_id),
       #'-name', paste0(session_id, '_', session_id), # use for nextflow log to get status etc
       sep = ' '
       )
-    #if(str_detect(string = str_flatten(input$profile, collapse = ","), pattern = 'test')) {
-    if(input$test) {
-      tmux_command <- paste(
-        paste0('NXF_VER=', input$nxf_ver),
-        'nextflow', 'run', 'angelovangel/nxf-tgs', 
-        '--pipeline', input$pipeline,
-        '--outdir', file.path('output', session_id),
-        '--assembly_args', assembly_args(), 
-        '-profile',  paste(input$profile, 'test', sep = ","),
-        '-w', file.path('work', session_id),
-        #'-name', paste0(session_id, '_', session_id), # use for nextflow log to get status etc
-        sep = ' '
-      )
-    }
+    
     tmux_command <- paste0("'", tmux_command, "'") # wrap the whole command in single quotes
     args2 <- c('send-keys', '-t', new_session_name, tmux_command, 'C-m')
     
