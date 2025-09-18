@@ -57,6 +57,7 @@ sidebar <- sidebar(
     #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
     checkboxInput('test', 'Run with test data', value = F),
     selectInput('nxf_ver', 'NXF version (for epi2me wf)', choices = c('24.04.2', '24.10.9', '25.04.6'), selected = '24.10.9'),
+    selectInput('cpus', 'CPUs to allocate', choices = c(4, 8, 16, 32, 64), selected = 8),
     textInput('additional_args', label = HTML("Additional arguments <br>(passed to epi2me wf)"))
   ),
   verbatimTextOutput('nxf_tgs_version')
@@ -114,7 +115,8 @@ server <- function(input, output, session) {
   # start with start deactivated, activate only when minimum args selected
   shinyjs::disable('start')
   
-  default_path <- Sys.getenv('DEFAULT_PATH')
+  default_path <- Sys.getenv('DEFAULT_PATH') # path for shinyFiles volumes
+  miniserve_path <- Sys.getenv('MINISERVE_PATH') # path where the files to share will be served
   volumes <- c(ont_data = default_path, getVolumes()())
   get_nxftgs_ver <- paste0(
     "git ls-remote ", "https://github.com/angelovangel/nxf-tgs.git", " HEAD | awk '{print substr($1, 1, 8)}'"
@@ -361,6 +363,7 @@ server <- function(input, output, session) {
       # allows per session cleanup
       '--outdir', file.path('output', session_id),
       '--nxf_ver', input$nxf_ver,
+      '--cpus', input$cpus,
       '--assembly_args', assembly_args(), # these are given as "--large_construct --assembly_tool canu"
       ifelse(input$test,  paste0('-profile ' , paste(input$profile, 'test', sep = ",")), paste0('-profile ', input$profile)),
       # allows per session cleanup
@@ -400,8 +403,8 @@ server <- function(input, output, session) {
     )
   })
   
-  # copy to miniserve/ and show user URLs
-  # miniserve -v -I miniserve/ > miniserve/miniserve.log 2>&1 &
+  # copy to miniserve_path/ and show user URLs
+  # miniserve -v -I $MINISERVE_PATH/
   observeEvent(input$show_urls, {
     withCallingHandlers({
       shinyjs::html(id = 'stdout', '')
@@ -424,16 +427,17 @@ server <- function(input, output, session) {
         
         for (u in users) {
           tar_name <- paste0(id, '-', u, '-', digest(paste0(id,u), algo = 'crc32'), '.tar.gz') #keeps randomid same for a sessionid-user combo
-          tar_path <- file.path('miniserve', tar_name) #keeps randomid same for a sessionid-user combo
+          tar_path <- file.path(miniserve_path, tar_name) #keeps randomid same for a sessionid-user combo
+          
           # create tar for each user
-          if (!file.exists(tar_path) && dir.exists('miniserve')) {
+          if (!file.exists(tar_path) && dir.exists(miniserve_path)) {
             #cat(file.path('output', id, u))
             system2('tar', args = c('-czf', tar_path, '-C', 'output', file.path(id, u))) 
           }
-          shinyjs::html('stdout', paste0('http://', miniserver, ":8080/",tar_name, '\n'), add = T)
+          shinyjs::html('stdout', paste0('http://', miniserver, ":8080/", tar_name, '\n'), add = T)
         }
         
-        myfile <- list.files(path = 'miniserve', pattern = id, full.names = T)[1]
+        myfile <- list.files(path = miniserve_path, pattern = id, full.names = T)[1]
         finfo <- file.info(myfile)
         expdays <- difftime(finfo$mtime+(60*60*24*14), Sys.time(), units = 'days') %>% as.numeric() %>% round()
         
