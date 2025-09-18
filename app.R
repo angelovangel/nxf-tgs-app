@@ -13,7 +13,8 @@ library(reactable)
 library(prettyunits)
 
 source('bin/global.R')
-ip <- system("ifconfig | grep 'inet ' | grep -v 127.0.0.1 | awk '{print $2}' | head -n 1", intern = TRUE)
+# brew install iproute2mac for the ip command on macos
+ip <- system("ifconfig | grep 'inet ' | grep -v 127.0.0.1 | grep -v 172.17.0 | awk '{print $2}' | head -n 1", intern = TRUE)
 
 sidebar <- sidebar(
  
