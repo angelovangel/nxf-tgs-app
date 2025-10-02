@@ -56,7 +56,7 @@ output
 www/*.tar.gz
 miniserve/*.tar.gz
 miniserve/*.zip
-
+credentials*
 
 
 

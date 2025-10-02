@@ -1,6 +1,7 @@
 library(shiny)
 library(shinyFiles)
 library(shinyjs)
+library(shinymanager)
 library(bslib)
 library(bsicons)
 library(stringr)
@@ -111,7 +112,17 @@ ui <- page_navbar(
   )
 )
 
+### secure app -----------------------------###
+ui <- secure_app(ui,theme = "simplex")
+credentials <- readRDS("credentials.rds")
+
+
 server <- function(input, output, session) {
+  
+  ### secure app -----------------------------###
+  res_auth <- secure_server(
+    check_credentials = check_credentials(credentials)
+  )
   
   # start with start deactivated, activate only when minimum args selected
   shinyjs::disable('start')
