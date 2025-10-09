@@ -113,7 +113,7 @@ ui <- page_navbar(
 )
 
 ### secure app -----------------------------###
-#ui <- secure_app(ui,theme = "simplex")
+ui <- secure_app(ui,theme = "simplex")
 credentials <- readRDS("credentials.rds")
 
 
