@@ -162,36 +162,6 @@ server <- function(input, output, session) {
   
   ### REACTIVES ###
   
-  
-  # Reactive value to store the selected session ID
-  selected_session_id_rv <- reactiveVal(NULL)
-  
-  # Reactive value for the selected row index (derived from the ID)
-  ###############################################
-  selected_row_index <- reactive({
-    id <- selected_session_id_rv()
-    if (is.null(id)) {
-      # Default to the first row if nothing is selected (or initially)
-      return(1) 
-    }
-    
-    # Find the index of the stored ID in the current tmux_sessions() dataframe
-    df <- tmux_sessions()
-    index <- which(df$session_id == id)
-    
-    # Return the index, or 1 if the ID is no longer in the table (e.g., killed)
-    # The selection mechanism in reactable will handle this if the index is out of bounds
-    if (length(index) == 1) {
-      return(index)
-    } else {
-      # If the selected session is no longer in the list, clear the ID and default
-      selected_session_id_rv(NULL)
-      return(1)
-    }
-  })
-  ###############################################
-  
-  
   nxflog <- tempfile(fileext = ".csv")
   
   tmux_sessions <- reactive({
@@ -271,46 +241,18 @@ server <- function(input, output, session) {
     file <- input$upload
   })
   
-  # row_selected <- reactive({
-  #   getReactableState('table', 'selected')
-  # })
-  # 
   
-  #session_selected <- reactive({
-    #tmux_sessions()[row_selected(), ]$session_id
-  #})
-  # session_selected now uses the stable ID
-  session_selected <- reactive({
-    id <- selected_session_id_rv()
-    if (!is.null(id)) {
-      return(id)
-    }
-    # Fallback to the ID of the row currently selected by index if ID is NULL
-    # This is mainly for the initial state where no click has registered an ID yet.
-    df <- tmux_sessions()
-    current_index <- getReactableState('table', 'selected')
-    if (!is.null(current_index) && current_index > 0 && current_index <= nrow(df)) {
-      return(df[current_index, ]$session_id)
-    }
-    return(NULL)
+  # NULL is returned here if no rows are selected
+  row_selected1 <- reactive({
+    getReactableState('table', 'selected')
   })
   
-  # OBSERVER to update the selected_session_id_rv whenever a row is clicked
-  observeEvent(getReactableState('table', 'selected'), {
-    req(getReactableState('table', 'selected'))
-    
-    # Get the index of the newly clicked row
-    clicked_index <- getReactableState('table', 'selected')
-    
-    # Get the corresponding session ID from the current table data
-    df <- tmux_sessions()
-    
-    # Check if the index is valid for the current data
-    if (clicked_index > 0 && clicked_index <= nrow(df)) {
-      new_id <- df[clicked_index, ]$session_id
-      selected_session_id_rv(new_id)
-    }
-  }, ignoreNULL = FALSE) # keep ignoreNULL=FALSE to handle initial selection
+  row_selected <- row_selected1 %>% debounce(1000)
+  
+  # when no row selected, make sure session_selected() is not NA
+  session_selected <- reactive({
+    tmux_sessions()[row_selected(), ]$session_id
+  })
   
   
   # this has to be "--assembly_tool canu --large_construct" # note the quotes
@@ -379,24 +321,12 @@ server <- function(input, output, session) {
     )
   })
   
-  # observe({
-  #   updateReactable('table', data = tmux_sessions(), selected = row_selected(), session = session)
-  # })
-  
-  # Update the observe block to use the stable selection index
   observe({
-    # This keeps the selection stable by finding the index corresponding
-    # to the stored session ID (selected_session_id_rv)
-    selected_index <- selected_row_index()
-    
-    # If the stored ID is not found, the index will be 1 (or another fallback), 
-    # but the ID will be NULLed in selected_row_index, effectively clearing the selection.
-    
+    #invalidateLater(3000)
     updateReactable(
       'table', 
       data = tmux_sessions(), 
-      # Pass the stable index derived from the ID
-      selected = selected_index, 
+      selected = row_selected(), 
       session = session
     )
   })
@@ -552,11 +482,10 @@ server <- function(input, output, session) {
   observeEvent(input$kill, {
    
     args <- paste0('kill-session -t ', session_selected())
-    if (!is.null(session_selected())) {
+    if (!is.null(row_selected())) {
       # kill session
       system2('tmux', args = args)
-      # Clear the stable selection ID after the session is killed
-      selected_session_id_rv(NULL) 
+     
       
       # Remove tarball from www
       tar_path <- file.path("www", paste0(session_selected(), ".tar.gz"))
