@@ -113,7 +113,7 @@ ui <- page_navbar(
 )
 
 ### secure app -----------------------------###
-ui <- secure_app(ui,theme = "simplex")
+# ui <- secure_app(ui,theme = "simplex")
 credentials <- readRDS("credentials.rds")
 
 
@@ -161,14 +161,7 @@ server <- function(input, output, session) {
   )
   
   ### REACTIVES ###
-  nxflog <- tempfile(fileext = ".csv")
   
-  # write nxf log
-  autoInvalidate <- reactiveTimer(3000) 
-  observe({
-    autoInvalidate()
-    write_nxf_status(nxflog)
-  })
   
   # Reactive value to store the selected session ID
   selected_session_id_rv <- reactiveVal(NULL)
@@ -199,13 +192,18 @@ server <- function(input, output, session) {
   ###############################################
   
   
+  nxflog <- tempfile(fileext = ".csv")
   
   tmux_sessions <- reactive({
     invalidateLater(3000, session)
     oldw <- getOption("warn")
     options(warn = -1)
     tmuxinfo <- system2("bin/tmux-info.sh", stdout = TRUE, stderr = TRUE)
+    ###
+    # write nxf log
+    write_nxf_status(nxflog)
     nxf_info <- read.csv(nxflog, header = T)
+    ###
     options(warn = oldw)
     
     if (any(str_detect(tmuxinfo, 'no server|error'))) {
@@ -223,7 +221,11 @@ server <- function(input, output, session) {
    
     # add status etc from nxflog
     df$status <- sapply(df$session_id, function(x) {
-      status_info <- nxf_info[str_detect(nxf_info$COMMAND, x), ]$STATUS
+      
+      status_info <- nxf_info[str_detect(nxf_info$COMMAND, x), ]$STATUS[1]
+      if (is.na(status_info)) {
+        status_info <- 'NA'
+      }
       if (length(status_info) == 0) {
         "<a style='color:orange';> STARTING </a>"
       } else if (str_trim(status_info) == "-") {
