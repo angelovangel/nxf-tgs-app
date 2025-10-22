@@ -247,7 +247,7 @@ server <- function(input, output, session) {
     getReactableState('table', 'selected')
   })
   
-  row_selected <- row_selected1 %>% debounce(1000)
+  row_selected <- row_selected1 %>% throttle(1000)
   
   # when no row selected, make sure session_selected() is not NA
   session_selected <- reactive({
