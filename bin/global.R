@@ -16,15 +16,34 @@ pipeline_finished <- function(id, df) {
 }
 
 
+# instead of imvoking heavy nextflow log, just read .nextflow/history
+# write_nxf_status <- function(file) {
+#   
+#   log <- system2('nextflow', args = 'log', stdout = T, stderr = T)
+#   if (length(log) < 2) {
+#     write.csv(data.frame(COMMAND = NA, DURATION = NA, STATUS = NA), file = file) 
+#   } else {
+#     logt <- read.table(text = log, header = T, sep = "\t")
+#     write.csv(logt, file = file)  
+#   }
+# }
 
-write_nxf_status <- function(file) {
+# return nextflow log table for a nextflow log in a specific folder
+# DO NOT invoke nextflow log, just read .nextflow/history
+nxf_log <- function(path) {
   
-  log <- system2('nextflow', args = 'log', stdout = T, stderr = T)
-  if (length(log) < 2) {
-    write.csv(data.frame(COMMAND = NA, DURATION = NA, STATUS = NA), file = file) 
+  cols <- c("TIMESTAMP", "DURATION", "RUN.NAME", "STATUS", "REVISION.ID", "SESSION.ID", "COMMAND")
+  #log <- processx::run('nextflow', 'log', wd = path, error_on_status = F)
+  log <- processx::run('cat', args = fs::path(path, '.nextflow', 'history'), error_on_status = F)
+  if (log$status == 0) {
+    #read.table(text = log$stdout, header = T, sep = '\t')
+    t <- read.table(text = log$stdout, header = F, sep = '\t')
+    colnames(t) <- cols
+    t
   } else {
-    logt <- read.table(text = log, header = T, sep = "\t")
-    write.csv(logt, file = file)  
+    data_list <- setNames(rep(list(NA), length(cols)), cols)
+    as.data.frame(data_list, stringsAsFactors = FALSE)
   }
+  
 }
 

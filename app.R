@@ -162,8 +162,6 @@ server <- function(input, output, session) {
   
   ### REACTIVES ###
   
-  nxflog <- tempfile(fileext = ".csv")
-  
   tmux_sessions <- reactive({
     invalidateLater(3000, session)
     oldw <- getOption("warn")
@@ -171,8 +169,9 @@ server <- function(input, output, session) {
     tmuxinfo <- system2("bin/tmux-info.sh", stdout = TRUE, stderr = TRUE)
     ###
     # write nxf log
-    write_nxf_status(nxflog)
-    nxf_info <- read.csv(nxflog, header = T)
+    # write_nxf_status(nxflog)
+    # nxf_info <- read.csv(nxflog, header = T)
+    nxf_info <- nxf_log(".")
     ###
     options(warn = oldw)
     
@@ -188,6 +187,11 @@ server <- function(input, output, session) {
         status = NA,
         results = NA
       )
+      
+    # filter out tmux sessions that don't belong to this app
+    df <- 
+      df %>%
+      filter(str_detect(session_id, '^[A-Za-z0-9]{8}$'))
    
     # add status etc from nxflog
     df$status <- sapply(df$session_id, function(x) {
