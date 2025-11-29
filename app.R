@@ -60,7 +60,7 @@ sidebar <- sidebar(
     checkboxInput('test', 'Run with test data', value = F),
     selectInput('nxf_ver', 'NXF version (for epi2me wf)', choices = c('24.04.2', '24.10.9', '25.04.6'), selected = '24.10.9'),
     selectInput('cpus', 'CPUs to allocate', choices = c(4, 8, 16, 32, 64), selected = 8),
-    textInput('additional_args', label = HTML("Additional arguments <br>(passed to epi2me wf)"))
+    textInput('additional_args', label = HTML("Additional arguments <br>(passed to epi2me wf)"), value = "--override_basecaller_cfg dna_r10.4.1_e8.2_400bps_sup@v5.0.0")
   ),
   verbatimTextOutput('nxf_tgs_version')
 )
