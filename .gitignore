@@ -56,8 +56,10 @@ output
 www/*.tar.gz
 miniserve/*.tar.gz
 miniserve/*.zip
+miniserve/nohup.out
 credentials*
 
 
 
 logs/*.log
+secrets
