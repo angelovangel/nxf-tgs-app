@@ -60,7 +60,9 @@ sidebar <- sidebar(
     checkboxInput('test', 'Run with test data', value = F),
     selectInput('nxf_ver', 'NXF version (for epi2me wf)', choices = c('24.04.2', '24.10.9', '25.04.6'), selected = '24.10.9'),
     selectInput('cpus', 'CPUs to allocate', choices = c(4, 8, 16, 32, 64), selected = 32),
-    textInput('additional_args', label = HTML("Additional arguments <br>(passed to epi2me wf)"))
+    textInput('additional_args', label = HTML("Additional arguments <br>(passed to epi2me wf)")),
+    hover_action_button('cleanup_space', 'Cleanup Space', button_animation = 'overline-reveal',
+                        icon = icon('trash-can'), style = 'color:#fff; background-color:#C0392B; border-color:#922B21;')
   ),
   verbatimTextOutput('nxf_tgs_version')
 )
@@ -512,6 +514,58 @@ server <- function(input, output, session) {
     } else {
       notify_failure('Select session first!', timeout = 2000, position = 'center-bottom')
     }  
+  })
+
+  # cleanup space: remove www/ and work/ subdirs for sessions no longer active in tmux
+  observeEvent(input$cleanup_space, {
+    # Get active tmux session names via plain `tmux ls`
+    # output format: "b488e891: 1 windows (created ...)"  -> extract part before ':'
+    tmux_ls_raw <- tryCatch(
+      system2('tmux', args = 'ls', stdout = TRUE, stderr = FALSE),
+      error = function(e) character(0)
+    )
+    session_names <- sub(':.*', '', tmux_ls_raw)  # everything before the first colon
+    # Keep only 8-char alphanumeric IDs (our session naming pattern)
+    active_ids <- session_names[grepl('^[A-Za-z0-9]{8}$', session_names)]
+    
+    removed <- character(0)
+    
+    # Helper: remove inactive subdirs from a given parent directory
+    cleanup_dir <- function(parent) {
+      if (!dir.exists(parent)) return()
+      subdirs <- list.dirs(parent, recursive = FALSE, full.names = FALSE)
+      inactive <- subdirs[grepl('^[A-Za-z0-9]{8}$', subdirs) & !(subdirs %in% active_ids)]
+      for (d in inactive) {
+        full_path <- file.path(parent, d)
+        unlink(full_path, recursive = TRUE)
+        removed <<- c(removed, full_path)
+      }
+    }
+    
+    cleanup_dir('www')
+    cleanup_dir('work')
+    cleanup_dir('output')
+    
+    # Also remove orphaned tarballs from www/
+    if (dir.exists('www')) {
+      tarballs <- list.files('www', pattern = '\\.tar\\.gz$', full.names = TRUE)
+      for (tb in tarballs) {
+        id_match <- regmatches(basename(tb), regexpr('^[A-Za-z0-9]{8}', basename(tb)))
+        if (length(id_match) == 1 && !(id_match %in% active_ids)) {
+          file.remove(tb)
+          removed <- c(removed, tb)
+        }
+      }
+    }
+    
+    if (length(removed) == 0) {
+      notify_success(text = 'Cleanup: nothing to remove.', position = 'center-bottom')
+    } else {
+      notify_success(
+        text = paste0('Cleanup done! Removed:\n', paste(removed, collapse = '\n')),
+        position = 'center-bottom'
+      )
+    }
   })
   
 }
