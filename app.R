@@ -289,48 +289,38 @@ server <- function(input, output, session) {
   
   # this has to be "--assembly_tool canu --large_construct" # note the quotes
   assembly_args <- reactive({
-  if (input$pipeline == 'wf-clone-validation') {
-    paste0(
-      '"', 
-      paste(
-        '--assembly_tool', input$assembly_tool, 
-        if (input$large_construct) '--large_construct' else '',
-        input$additional_args,
-        sep = ' '
-      ), 
-      '"'
-    )
-  } else if (input$pipeline == 'wf-amplicon') {
-    paste0(
-      '"', 
-      paste(
-        '--min_read_length', 
-        input$min_read_len, 
-        input$additional_args, 
-        sep = ' '
-      ), 
-      '"'
-    )
-  } else {
-    ""
-  }
-})
+    add_args <- if (!is.null(input$additional_args) && nzchar(input$additional_args)) input$additional_args else ""
+    if (identical(input$pipeline, 'wf-clone-validation')) {
+      tool <- if (!is.null(input$assembly_tool)) input$assembly_tool else 'flye'
+      large <- if (isTRUE(input$large_construct)) '--large_construct' else ''
+      clean_args <- trimws(paste('--assembly_tool', tool, large, add_args))
+      paste0('"', clean_args, '"')
+    } else if (identical(input$pipeline, 'wf-amplicon')) {
+      min_len <- if (!is.null(input$min_read_len)) input$min_read_len else 300
+      clean_args <- trimws(paste('--min_read_length', min_len, add_args))
+      paste0('"', clean_args, '"')
+    } else {
+      ""
+    }
+  })
   
   
   ### OUTPUTS ###
   # show selection
   output$stdout <- renderText({
-    #req(samplesheet())
-    path <- parseDirPath(volumes, input$fastq_folder)
-    #ext <- tools::file_ext(samplesheet()$datapath)
-    #shiny::validate(need(ext == 'csv' | ext == 'xlsx', 'Please upload a csv or excel (xlsx) file'))
+    path <- tryCatch(parseDirPath(volumes, input$fastq_folder), error = function(e) "")
+    profile_val <- if (!is.null(input$profile)) input$profile else 'singularity'
+    current_profile <- if (isTRUE(input$test)) paste(profile_val, 'test', sep = ",") else profile_val
+    sheet <- samplesheet()
+    sheet_name <- if (!is.null(sheet) && !is.null(sheet$name)) sheet$name else "None"
+    
     paste0(
       "Selected parameters: \n",
       "-----------------------\n",
-      "pipeline: ", input$pipeline, "\n",
+      "pipeline: ", if (!is.null(input$pipeline)) input$pipeline else "", "\n",
       "fastq path: ", path, "\n",
-      "samplesheet: ", samplesheet()$name, "\n",
-      "profile: ", ifelse(input$test, paste(input$profile, 'test', sep = ","), input$profile), "\n",
+      "samplesheet: ", sheet_name, "\n",
+      "profile: ", current_profile, "\n",
       "assembly_args: ", assembly_args(), "\n"
     )
   })
@@ -387,7 +377,7 @@ server <- function(input, output, session) {
   })
   
   observeEvent(input$test, {
-    if(input$test) {
+    if(isTRUE(input$test)) {
       shinyjs::hide('inputs')
       shinyjs::enable('start')
     } else {
@@ -405,7 +395,13 @@ server <- function(input, output, session) {
   observeEvent(input$start, {
     session_id <- digest(runif(1), algo = 'crc32')
     new_session_name <- session_id #paste0(session_id, "-", input$pipeline)
-    selectedFolder <- parseDirPath(volumes, input$fastq_folder)
+    selectedFolder <- tryCatch(parseDirPath(volumes, input$fastq_folder), error = function(e) "")
+    profile_val <- if (!is.null(input$profile)) input$profile else 'singularity'
+    nxf_ver_val <- if (!is.null(input$nxf_ver)) input$nxf_ver else '24.10.9'
+    cpus_val <- if (!is.null(input$cpus)) input$cpus else 32
+    profile_arg <- if (isTRUE(input$test)) paste(profile_val, 'test', sep = ",") else profile_val
+    sheet <- samplesheet()
+    sheet_path <- if (!is.null(sheet) && !is.null(sheet$datapath)) sheet$datapath else ""
   
     # launch new clean! session
     args1 <- c('new', '-d', '-s', new_session_name, '-x', '120', '-y', '30', "'bash --login'") # add 'bash --login' to prevent R from inheriting from previous tmux sessions?
@@ -416,14 +412,14 @@ server <- function(input, output, session) {
       #paste0('NXF_VER=', input$nxf_ver),
       'nextflow', 'run', 'angelovangel/nxf-tgs', 
       '--pipeline', input$pipeline,
-      ifelse(input$test, '', paste0('--fastq ', selectedFolder)),
-      ifelse(input$test, '', paste0('--samplesheet ', samplesheet()$datapath)),
+      if (isTRUE(input$test)) '' else paste0('--fastq ', selectedFolder),
+      if (isTRUE(input$test)) '' else paste0('--samplesheet ', sheet_path),
       # allows per session cleanup
       '--outdir', file.path('output', session_id),
-      '--nxf_ver', input$nxf_ver,
-      '--cpus', input$cpus,
+      '--nxf_ver', nxf_ver_val,
+      '--cpus', cpus_val,
       '--assembly_args', assembly_args(), # these are given as "--large_construct --assembly_tool canu"
-      ifelse(input$test,  paste0('-profile ' , paste(input$profile, 'test', sep = ",")), paste0('-profile ', input$profile)),
+      '-profile', profile_arg,
       # allows per session cleanup
       '-w', file.path('work', session_id),
       #'-name', paste0(session_id, '_', session_id), # use for nextflow log to get status etc
