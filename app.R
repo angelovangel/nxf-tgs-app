@@ -203,13 +203,13 @@ server <- function(input, output, session) {
     ###
     options(warn = oldw)
     
-    if (any(str_detect(tmuxinfo, 'no server|error'))) {
+    if (length(tmuxinfo) == 0 || any(str_detect(tmuxinfo, 'no server|error|failed')) || all(!nzchar(tmuxinfo))) {
       empty_df
     } else {
       df <- data.frame(
         session_id = str_split_i(tmuxinfo, " ", 2),
         pipeline = NA,
-        started = str_split_i(tmuxinfo, " ", 1) %>% as.numeric() %>% as.POSIXct(),
+        started = as.POSIXct(as.numeric(str_split_i(tmuxinfo, " ", 1)), origin = "1970-01-01"),
         runtime = NA,
         pipeline_runtime = NA,
         status = NA,
