@@ -362,18 +362,54 @@ else
 fi
 
 # ==============================================================================
-# 7. R Dependencies via renv
+# 7. R Dependencies via renv & Posit Binary Repository
 # ==============================================================================
-log_info "Restoring R package dependencies..."
+# Detect distribution codename for Posit Package Manager Linux binaries (jammy, noble, focal)
+DISTRO_CODENAME="jammy"
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    DISTRO_CODENAME="${VERSION_CODENAME:-jammy}"
+fi
+export DISTRO_CODENAME
+
+# Check memory and enable swap if RAM is low (<4GB) to prevent OOM killer
+if [ -f /proc/meminfo ]; then
+    TOTAL_MEM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    SWAP_TOTAL_KB=$(grep SwapTotal /proc/meminfo | awk '{print $2}')
+    if [ "${TOTAL_MEM_KB:-0}" -lt 4194304 ] && [ "${SWAP_TOTAL_KB:-0}" -lt 1048576 ]; then
+        log_info "Low RAM detected ($((TOTAL_MEM_KB / 1024))MB) with insufficient swap. Setting up 2GB swap to prevent OOM kills..."
+        if [ ! -f /swapfile ] && ([ -n "$SUDO" ] || [ "$(id -u)" -eq 0 ]); then
+            $SUDO fallocate -l 2G /swapfile 2>/dev/null || $SUDO dd if=/dev/zero of=/swapfile bs=1M count=2048
+            $SUDO chmod 600 /swapfile
+            $SUDO mkswap /swapfile
+            $SUDO swapon /swapfile || true
+            log_success "2GB swapfile enabled."
+        elif [ -f /swapfile ]; then
+            $SUDO swapon /swapfile 2>/dev/null || true
+        fi
+    fi
+fi
+
+log_info "Restoring R package dependencies (using pre-compiled binaries for Ubuntu ${DISTRO_CODENAME})..."
+export MAKEFLAGS="-j1"
+
 Rscript -e '
+  distro <- Sys.getenv("DISTRO_CODENAME", "jammy")
+  ppm_repo <- paste0("https://packagemanager.posit.co/cran/__linux__/", distro, "/latest")
+  options(repos = c(CRAN = ppm_repo))
+  options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(), paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
+  Sys.setenv(RENV_CONFIG_PPM_ENABLED = "TRUE")
+  Sys.setenv(RENV_CONFIG_PPM_DEFAULT = "TRUE")
+
   if (!requireNamespace("renv", quietly = TRUE)) {
     message("Installing renv package...")
-    install.packages("renv", repos = "https://packagemanager.posit.co/cran/latest")
+    install.packages("renv", repos = ppm_repo)
   }
   
   if (file.exists("renv.lock")) {
     message("Restoring environment from renv.lock...")
-    renv::restore(prompt = FALSE)
+    # Use binary PPM repository during restore
+    renv::restore(prompt = FALSE, repos = c(CRAN = ppm_repo))
   } else {
     message("renv.lock not found, installing required packages directly...")
     pkgs <- c("shiny", "shinyFiles", "shinyjs", "shinymanager", "bslib", 
@@ -381,7 +417,7 @@ Rscript -e '
               "digest", "hover", "reactable", "prettyunits", "fs")
     for (pkg in pkgs) {
       if (!requireNamespace(pkg, quietly = TRUE)) {
-        install.packages(pkg, repos = "https://packagemanager.posit.co/cran/latest")
+        install.packages(pkg, repos = ppm_repo)
       }
     }
   }
