@@ -162,8 +162,9 @@ fi
 if [ "$SKIP_SYS_DEPS" = false ]; then
     if command -v apt-get >/dev/null 2>&1; then
         log_info "Detected Debian/Ubuntu system. Installing system packages..."
+        export DEBIAN_FRONTEND=noninteractive
         $SUDO apt-get update -y
-        $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        $SUDO apt-get install -y \
             curl \
             wget \
             git \
@@ -187,7 +188,7 @@ if [ "$SKIP_SYS_DEPS" = false ]; then
             libfribidi-dev \
             libfreetype6-dev \
             libpng-dev \
-            libtiff5-dev \
+            libtiff-dev \
             libjpeg-dev \
             libgit2-dev
         log_success "System packages installed successfully."
