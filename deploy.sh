@@ -53,6 +53,7 @@ NEXTFLOW_VER="25.04.7"
 SERVICE_USER="${DEFAULT_SERVICE_USER}"
 SERVICE_GROUP="${DEFAULT_SERVICE_GROUP}"
 SKIP_SYS_DEPS=false
+SKIP_DOCKER=false
 SKIP_SYSTEMD=false
 NON_INTERACTIVE=false
 RESET_CREDENTIALS=false
@@ -72,6 +73,7 @@ Options:
   --nextflow-ver <ver>          Nextflow version to install (default: ${NEXTFLOW_VER})
   --service-user <user>         System user to run systemd services (default: ${DEFAULT_SERVICE_USER})
   --skip-sys-deps               Skip apt-get system package installations
+  --skip-docker                 Skip Docker installation
   --skip-systemd                Skip creating and starting systemd services
   --reset-credentials           Force overwrite of credentials.rds if it already exists
   -y, --non-interactive         Run without interactive prompts
@@ -116,6 +118,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-sys-deps)
             SKIP_SYS_DEPS=true
+            shift
+            ;;
+        --skip-docker)
+            SKIP_DOCKER=true
             shift
             ;;
         --skip-systemd)
@@ -245,13 +251,43 @@ NXF_VER="${NEXTFLOW_VER}" nextflow info >/dev/null 2>&1 || true
 log_success "Nextflow ready: $(nextflow -v 2>/dev/null || echo "v${NEXTFLOW_VER}")"
 
 # ==============================================================================
-# 3. Miniserve Installation
+# 3. Docker Installation & Permissions
+# ==============================================================================
+if [ "$SKIP_DOCKER" = false ]; then
+    log_info "Checking Docker..."
+    if ! command -v docker >/dev/null 2>&1; then
+        log_info "Docker not found. Installing Docker via official get.docker.com script..."
+        if [ -n "$SUDO" ] || [ "$(id -u)" -eq 0 ]; then
+            curl -fsSL https://get.docker.com | $SUDO sh
+            $SUDO systemctl enable --now docker 2>/dev/null || true
+            log_success "Docker installed successfully: $(docker --version 2>/dev/null || echo 'Installed')"
+        else
+            log_warn "Root/sudo privileges required to install Docker. Please install Docker manually."
+        fi
+    else
+        log_success "Docker is already installed: $(docker --version 2>/dev/null || echo 'Found')"
+    fi
+
+    # Ensure user has non-root access to docker socket
+    if command -v docker >/dev/null 2>&1 && ([ -n "$SUDO" ] || [ "$(id -u)" -eq 0 ]); then
+        log_info "Configuring Docker group permissions for user '${SERVICE_USER}'..."
+        $SUDO usermod -aG docker "$SERVICE_USER" 2>/dev/null || true
+        if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "$SERVICE_USER" ] && [ "${SUDO_USER}" != "root" ]; then
+            $SUDO usermod -aG docker "$SUDO_USER" 2>/dev/null || true
+        fi
+        log_success "User '${SERVICE_USER}' added to 'docker' group."
+    fi
+else
+    log_info "Skipping Docker installation (--skip-docker)."
+fi
+
+# ==============================================================================
+# 4. Miniserve Installation
 # ==============================================================================
 log_info "Checking miniserve..."
 if ! command -v miniserve >/dev/null 2>&1; then
     log_info "miniserve not found on PATH. Installing latest release..."
     ARCH="$(uname -m)"
-    MINISERVE_OS="unknown-linux-musl"
     case "$ARCH" in
         x86_64)
             MINISERVE_ARCH="x86_64"
@@ -264,20 +300,31 @@ if ! command -v miniserve >/dev/null 2>&1; then
             ;;
     esac
 
-    MINISERVE_URL="https://github.com/svenstaro/miniserve/releases/latest/download/miniserve-${MINISERVE_ARCH}-${MINISERVE_OS}"
-    TEMP_MINISERVE="/tmp/miniserve"
-    
+    # Query GitHub API to get exact asset URL (asset filenames contain version tags)
+    MINISERVE_URL=""
+    LATEST_JSON="$(curl -fsSL https://api.github.com/repos/svenstaro/miniserve/releases/latest 2>/dev/null || echo "")"
+    if [ -n "$LATEST_JSON" ]; then
+        MINISERVE_URL="$(echo "$LATEST_JSON" | grep "browser_download_url" | grep -E "${MINISERVE_ARCH}-unknown-linux-(musl|gnu)" | cut -d '"' -f 4 | head -n 1 || echo "")"
+    fi
+
+    # Fallback to direct known release if GitHub API is rate-limited
+    if [ -z "$MINISERVE_URL" ]; then
+        MINISERVE_URL="https://github.com/svenstaro/miniserve/releases/download/v0.29.0/miniserve-v0.29.0-${MINISERVE_ARCH}-unknown-linux-musl"
+    fi
+
+    TEMP_MINISERVE="/tmp/miniserve_$$"
+    log_info "Downloading miniserve from ${MINISERVE_URL}..."
     if curl -fsSL -o "$TEMP_MINISERVE" "$MINISERVE_URL"; then
         chmod +x "$TEMP_MINISERVE"
         INSTALL_BIN_DIR="/usr/local/bin"
-        if [ ! -w "$INSTALL_BIN_DIR" ] && [ -n "$SUDO" ]; then
+        if [ -w "$INSTALL_BIN_DIR" ]; then
+            mv "$TEMP_MINISERVE" "$INSTALL_BIN_DIR/miniserve"
+        elif [ -n "$SUDO" ]; then
             $SUDO mv "$TEMP_MINISERVE" "$INSTALL_BIN_DIR/miniserve"
-        elif [ ! -w "$INSTALL_BIN_DIR" ]; then
+        else
             mkdir -p "$HOME/.local/bin"
             mv "$TEMP_MINISERVE" "$HOME/.local/bin/miniserve"
             export PATH="$HOME/.local/bin:$PATH"
-        else
-            mv "$TEMP_MINISERVE" "$INSTALL_BIN_DIR/miniserve"
         fi
         log_success "miniserve installed successfully: $(miniserve --version 2>/dev/null || echo 'Installed')"
     else
@@ -288,7 +335,7 @@ else
 fi
 
 # ==============================================================================
-# 4. Directory Structure & Permissions
+# 5. Directory Structure & Permissions
 # ==============================================================================
 log_info "Setting up application directory structure..."
 mkdir -p logs output work miniserve www
@@ -296,7 +343,7 @@ chmod +x bin/*.sh 2>/dev/null || true
 log_success "Directories ready: logs/, output/, work/, miniserve/, www/"
 
 # ==============================================================================
-# 5. Configure .Renviron
+# 6. Configure .Renviron
 # ==============================================================================
 log_info "Configuring .Renviron..."
 if [ ! -f .Renviron ]; then
@@ -310,7 +357,7 @@ else
 fi
 
 # ==============================================================================
-# 6. Setup credentials.rds
+# 7. Setup credentials.rds
 # ==============================================================================
 log_info "Configuring credentials.rds..."
 if [ -f "credentials.rds" ] && [ "$RESET_CREDENTIALS" = false ]; then
@@ -362,7 +409,7 @@ else
 fi
 
 # ==============================================================================
-# 7. R Dependencies via renv & Posit Binary Repository
+# 8. R Dependencies via renv & Posit Binary Repository
 # ==============================================================================
 # Detect distribution codename for Posit Package Manager Linux binaries (jammy, noble, focal)
 DISTRO_CODENAME="jammy"
@@ -441,7 +488,7 @@ Rscript -e '
 log_success "All required R packages are installed and verified."
 
 # ==============================================================================
-# 8. Setup Systemd Services
+# 9. Setup Systemd Services
 # ==============================================================================
 if [ "$SKIP_SYSTEMD" = false ] && command -v systemctl >/dev/null 2>&1; then
     log_info "Setting up systemd services for Miniserve and NXF-TGS Shiny app..."
@@ -513,7 +560,76 @@ else
 fi
 
 # ==============================================================================
-# 9. Deployment Summary & Usage Instructions
+# 10. Firewall Configuration & Port Verification
+# ==============================================================================
+log_info "Checking firewall and opening ports (${SHINY_PORT}, ${MINISERVE_PORT})..."
+
+# Check UFW
+if command -v ufw >/dev/null 2>&1; then
+    if $SUDO ufw status | grep -qw "active"; then
+        log_info "UFW firewall is active. Opening ports ${SHINY_PORT}/tcp and ${MINISERVE_PORT}/tcp..."
+        $SUDO ufw allow "${SHINY_PORT}/tcp" comment "NXF-TGS Shiny App" >/dev/null 2>&1 || true
+        $SUDO ufw allow "${MINISERVE_PORT}/tcp" comment "Miniserve File Server" >/dev/null 2>&1 || true
+        log_success "UFW firewall rules updated for ports ${SHINY_PORT} and ${MINISERVE_PORT}."
+    else
+        log_info "UFW is inactive. Ports ${SHINY_PORT} and ${MINISERVE_PORT} are unrestricted by UFW."
+    fi
+fi
+
+# Check firewalld
+if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+    log_info "firewalld is active. Opening ports ${SHINY_PORT}/tcp and ${MINISERVE_PORT}/tcp..."
+    $SUDO firewall-cmd --permanent --add-port="${SHINY_PORT}/tcp" >/dev/null 2>&1 || true
+    $SUDO firewall-cmd --permanent --add-port="${MINISERVE_PORT}/tcp" >/dev/null 2>&1 || true
+    $SUDO firewall-cmd --reload >/dev/null 2>&1 || true
+    log_success "firewalld rules updated."
+fi
+
+# ==============================================================================
+# 11. Service Health Check & Status Report
+# ==============================================================================
+if [ "$SKIP_SYSTEMD" = false ] && command -v systemctl >/dev/null 2>&1; then
+    log_info "Verifying service status and health..."
+    sleep 3
+
+    # Check Miniserve
+    MINISERVE_STATUS="$(systemctl is-active miniserve.service 2>/dev/null || echo 'inactive')"
+    if [ "$MINISERVE_STATUS" = "active" ]; then
+        log_success "miniserve.service is active (running)."
+    else
+        log_error "miniserve.service failed to start (status: ${MINISERVE_STATUS}). Recent logs:"
+        $SUDO journalctl -u miniserve.service -n 15 --no-pager || true
+    fi
+
+    # Check Shiny App
+    SHINY_STATUS="$(systemctl is-active nxf-tgs-app.service 2>/dev/null || echo 'inactive')"
+    if [ "$SHINY_STATUS" = "active" ]; then
+        log_success "nxf-tgs-app.service is active (running)."
+    else
+        log_error "nxf-tgs-app.service failed to start (status: ${SHINY_STATUS}). Recent logs:"
+        $SUDO journalctl -u nxf-tgs-app.service -n 20 --no-pager || true
+    fi
+
+    # Test HTTP endpoint connectivity locally
+    log_info "Testing local HTTP endpoints..."
+    SHINY_HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "http://127.0.0.1:${SHINY_PORT}" 2>/dev/null || echo "000")"
+    MINISERVE_HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 "http://127.0.0.1:${MINISERVE_PORT}" 2>/dev/null || echo "000")"
+
+    if [ "$SHINY_HTTP_CODE" != "000" ]; then
+        log_success "Shiny App HTTP response: ${SHINY_HTTP_CODE} OK (http://127.0.0.1:${SHINY_PORT})"
+    else
+        log_warn "Shiny App not responding on http://127.0.0.1:${SHINY_PORT} yet. It may still be initializing R packages."
+    fi
+
+    if [ "$MINISERVE_HTTP_CODE" != "000" ]; then
+        log_success "Miniserve HTTP response: ${MINISERVE_HTTP_CODE} OK (http://127.0.0.1:${MINISERVE_PORT})"
+    else
+        log_warn "Miniserve not responding on http://127.0.0.1:${MINISERVE_PORT} yet."
+    fi
+fi
+
+# ==============================================================================
+# 12. Deployment Summary & Usage Instructions
 # ==============================================================================
 IP_ADDR="$(hostname -I 2>/dev/null | awk '{print $1}' || echo "YOUR_SERVER_IP")"
 
@@ -523,14 +639,20 @@ echo -e "${BOLD}${GREEN}          Deployment Setup Completed!              ${NC}
 echo -e "${BOLD}${GREEN}===================================================${NC}"
 echo ""
 echo -e "${BOLD}Access URLs:${NC}"
-echo -e "   Shiny App:  http://${IP_ADDR}:${SHINY_PORT}"
-echo -e "   File Share: http://${IP_ADDR}:${MINISERVE_PORT}"
+echo -e "   Shiny App:  ${CYAN}http://${IP_ADDR}:${SHINY_PORT}${NC}"
+echo -e "   File Share: ${CYAN}http://${IP_ADDR}:${MINISERVE_PORT}${NC}"
 echo ""
-echo -e "${BOLD}Systemd Service Management:${NC}"
+echo -e "${BOLD}Service Status Summary:${NC}"
+if command -v systemctl >/dev/null 2>&1 && [ "$SKIP_SYSTEMD" = false ]; then
+    echo -e "   nxf-tgs-app.service: $(systemctl is-active nxf-tgs-app 2>/dev/null || echo 'inactive')"
+    echo -e "   miniserve.service:   $(systemctl is-active miniserve 2>/dev/null || echo 'inactive')"
+fi
+echo ""
+echo -e "${BOLD}Useful Management Commands:${NC}"
 echo -e "   Check status:  sudo systemctl status nxf-tgs-app miniserve"
 echo -e "   Restart app:   sudo systemctl restart nxf-tgs-app"
-echo -e "   View app logs: sudo journalctl -u nxf-tgs-app -f (or tail -f logs/shiny-app.log)"
+echo -e "   View app logs: sudo journalctl -u nxf-tgs-app -f"
 echo -e "   Restart files: sudo systemctl restart miniserve"
 echo ""
-echo -e "${BOLD}Note:${NC} A container engine (Singularity / Apptainer / Docker) is recommended for Nextflow workflows."
+echo -e "${BOLD}Note:${NC} Nextflow pipelines will run with Docker/Singularity as configured."
 echo ""
