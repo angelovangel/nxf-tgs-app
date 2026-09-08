@@ -53,9 +53,8 @@ sidebar <- sidebar(
   checkboxInput('advanced', 'Advanced settings', value = FALSE),
   conditionalPanel(
     condition = 'input.advanced',
-    selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity'), selected = 'singularity', multiple = F),
+    selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity', 'low_mem', 'test'), selected = 'singularity', multiple = TRUE),
     #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
-    checkboxInput('test', 'Run with test data', value = F),
     selectInput('nxf_ver', 'NXF version (for epi2me wf)', choices = c('24.04.2', '24.10.9', '25.04.6'), selected = '24.10.9'),
     selectInput('cpus', 'CPUs to allocate', choices = c(4, 8, 16, 32, 64), selected = 32),
     textInput('additional_args', label = HTML("Additional arguments <br>(passed to epi2me wf)")),
@@ -309,8 +308,7 @@ server <- function(input, output, session) {
   # show selection
   output$stdout <- renderText({
     path <- tryCatch(parseDirPath(volumes, input$fastq_folder), error = function(e) "")
-    profile_val <- if (!is.null(input$profile)) input$profile else 'singularity'
-    current_profile <- if (isTRUE(input$test)) paste(profile_val, 'test', sep = ",") else profile_val
+    current_profile <- if (!is.null(input$profile) && length(input$profile) > 0) paste(input$profile, collapse = ",") else 'singularity'
     sheet <- samplesheet()
     sheet_name <- if (!is.null(sheet) && !is.null(sheet$name)) sheet$name else "None"
     
@@ -376,8 +374,8 @@ server <- function(input, output, session) {
     }
   })
   
-  observeEvent(input$test, {
-    if(isTRUE(input$test)) {
+  observe({
+    if ('test' %in% input$profile) {
       shinyjs::hide('inputs')
       shinyjs::enable('start')
     } else {
@@ -396,10 +394,10 @@ server <- function(input, output, session) {
     session_id <- digest(runif(1), algo = 'crc32')
     new_session_name <- session_id #paste0(session_id, "-", input$pipeline)
     selectedFolder <- tryCatch(parseDirPath(volumes, input$fastq_folder), error = function(e) "")
-    profile_val <- if (!is.null(input$profile)) input$profile else 'singularity'
+    profile_arg <- if (!is.null(input$profile) && length(input$profile) > 0) paste(input$profile, collapse = ",") else 'singularity'
+    is_test <- 'test' %in% input$profile
     nxf_ver_val <- if (!is.null(input$nxf_ver)) input$nxf_ver else '24.10.9'
     cpus_val <- if (!is.null(input$cpus)) input$cpus else 32
-    profile_arg <- if (isTRUE(input$test)) paste(profile_val, 'test', sep = ",") else profile_val
     sheet <- samplesheet()
     sheet_path <- if (!is.null(sheet) && !is.null(sheet$datapath)) sheet$datapath else ""
   
@@ -412,8 +410,8 @@ server <- function(input, output, session) {
       #paste0('NXF_VER=', input$nxf_ver),
       'nextflow', 'run', 'angelovangel/nxf-tgs', 
       '--pipeline', input$pipeline,
-      if (isTRUE(input$test)) '' else paste0('--fastq ', selectedFolder),
-      if (isTRUE(input$test)) '' else paste0('--samplesheet ', sheet_path),
+      if (is_test) '' else paste0('--fastq ', selectedFolder),
+      if (is_test) '' else paste0('--samplesheet ', sheet_path),
       # allows per session cleanup
       '--outdir', file.path('output', session_id),
       '--nxf_ver', nxf_ver_val,
