@@ -17,6 +17,11 @@ source('bin/global.R')
 # brew install iproute2mac for the ip command on macos
 ip <- system("ifconfig | grep 'inet ' | grep -v 127.0.0.1 | grep -v 172.17.0 | awk '{print $2}' | head -n 1", intern = TRUE)
 
+git_commit <- tryCatch({
+  sha <- system("git -C . rev-parse --short HEAD", intern = TRUE, ignore.stderr = TRUE)
+  if (length(sha) > 0 && nzchar(sha[1])) sha[1] else "unknown"
+}, error = function(e) "unknown")
+
 sidebar <- sidebar(
  
   selectInput(
@@ -29,16 +34,9 @@ sidebar <- sidebar(
   
   shiny::div(id = 'inputs',
   # fastq_pass folder
-  shinyDirButton('fastq_folder', 'Select fastq_pass folder', title ='Please select a fastq_pass folder from a run', multiple = F),
+  shinyDirButton('fastq_folder', 'fastq_pass folder', title ='Please select a fastq_pass folder from a run', multiple = F),
   fileInput('upload', 'Upload sample sheet', multiple = F, accept = c('.xlsx', '.csv'), placeholder = 'xlsx or csv file')
   ),
-  
-  hover_action_button('start', 'Start pipeline', button_animation = 'overline-reveal', icon = icon('play')),
-  hover_action_button('show_session', 'Show session', button_animation = 'overline-reveal', icon = icon('expand')),
-  hover_action_button('show_urls', 'Show user data URLs', button_animation = 'overline-reveal'),
-  hover_action_button('reset', 'Reset inputs', button_animation = 'overline-reveal', icon = icon('rotate-right')),
-  #hover_action_button('ctrlc', 'Send ctrl-c to session', button_animation = 'overline-reveal', icon = icon('stop')),
-  hover_action_button('kill', 'Kill session', button_animation = 'overline-reveal', icon = icon('xmark'), style = 'color:#F54927;'),
   
   # plasmid-specific options
   conditionalPanel(
@@ -67,55 +65,83 @@ sidebar <- sidebar(
   verbatimTextOutput('nxf_tgs_version')
 )
 
-ui <- page_navbar(
-  
-  useShinyjs(),
-  use_hover(),
-  
-  
-  fillable = F,
-  title = tags$span(
-    tags$span(
-      "NXF - TGS app",
-      style = "font-size: 1.3rem; font-weight: normal; margin-left: 0em; color: #701705;"
-    ),
-    tags$span(
-      #icon('align-center'),
-      "Nextflow pipeline for ONT merge/rename, report generation, and de novo plasmid/amplicon assembly at BCL",
-      #icon('align-center'),
-      style = "font-size: 0.9rem; font-weight: normal; margin-left: 7em; color: #701705;"
-    )
+card1 <- card(
+  card_header(
+    id = 'header1',
+    class = 'bg-secondary',
+    tags$a('Sessions', tooltip(bsicons::bs_icon("question-circle"), 'Currently active tmux sessions'))
   ),
-  theme = bs_theme(bootswatch = 'yeti', primary = '#196F3D'),
-  sidebar = sidebar,
-  
-  card(
-    card_header(
-      id = 'header1', 
-      class = 'bg-secondary', 
-      tags$a('Sessions', tooltip(bsicons::bs_icon("question-circle"), 'Currently active tmux sessions'))
-    ),
-    max_height = 280,
-    card_body(
+  card_body(
+    tags$div(
+      class = 'resizable',
+      style = 'resize: vertical; overflow: auto; min-height: 100px; max-height: 50vh;',
       reactableOutput('table')
     )
+  )
+)
+
+card2 <- card(
+  card_header(
+    id = 'header2',
+    class = 'bg-secondary',
+    tags$a('Session output', tooltip(bsicons::bs_icon("question-circle"), 'Output from the selected nxf-tgs pipeline'))
   ),
-  
-  card(
-    card_header(
-      id = 'header2', 
-      class = 'bg-secondary', 
-      tags$a('Session output', tooltip(bsicons::bs_icon("question-circle"), 'Output from the selected nxf-tgs pipeline'))
-    ),
-    height = 450,
-    card_body(
+  card_body(
+    tags$div(
+      class = 'resizable',
+      style = 'resize: vertical; overflow: auto; min-height: 200px; max-height: 70vh;',
       verbatimTextOutput('stdout')
     )
   )
 )
 
+ui <- page_navbar(
+  use_hover(),
+  useShinyjs(),
+  tags$head(
+    tags$link(rel = 'stylesheet', type = 'text/css', href = 'style.css')
+  ),
+  fillable = FALSE,
+  title = tags$span(
+    tags$span(
+      'NXF - TGS app',
+      style = 'font-size: 1.2rem; font-weight: bold; margin-left: 0em; color: #0047AB;'
+    ),
+    tags$span(
+      'Nextflow pipeline for ONT merge/rename, report generation, and de novo plasmid/amplicon assembly at BCL',
+      style = 'font-size: 0.85rem; font-weight: normal; margin-left: 8em; color: #4B5563;'
+    ),
+    tags$a(
+      href = 'https://github.com/angelovangel/nxf-tgs-app',
+      target = '_blank',
+      paste0('commit ', git_commit, ' ↗'),
+      style = 'font-size: 0.75rem; font-weight: 500; color: #0047AB; margin-left: 3rem; vertical-align: middle; text-decoration: none;'
+    )
+  ),
+  sidebar = sidebar,
+  theme = bs_theme(
+    version = 5,
+    bootswatch = 'flatly',
+    primary = '#0047AB',
+    secondary = '#4169E1',
+    base_font = font_google('Inter'),
+    heading_font = font_google('Inter'),
+    'font-size-base' = '0.9rem'
+  ),
+  tags$div(
+    class = 'sticky-controls',
+    hover_action_button('start', 'Start pipeline', icon = icon('play'), button_animation = 'overline-reveal'),
+    hover_action_button('show_session', 'Show session', icon = icon('expand'), button_animation = 'overline-reveal'),
+    hover_action_button('show_urls', 'Show user data URLs', button_animation = 'overline-reveal'),
+    hover_action_button('reset', 'Reset inputs', icon = icon('rotate-right'), button_animation = 'overline-reveal'),
+    hover_action_button('kill', 'Kill session', icon = icon('xmark'), style = 'color:#0047AB;', button_animation = 'overline-reveal')
+  ),
+  card1,
+  card2
+)
+
 ### secure app -----------------------------###
-ui <- secure_app(ui,theme = "simplex")
+ui <- secure_app(ui,theme = "simplex", fab_position = "none")
 credentials <- readRDS("credentials.rds")
 
 
