@@ -180,6 +180,7 @@ server <- function(input, output, session) {
     runtime = NA,
     pipeline_runtime = NA,
     status = NA,
+    size = NA,
     results = NA
     #command = NA,
     #active = NA,
@@ -212,6 +213,7 @@ server <- function(input, output, session) {
         runtime = NA,
         pipeline_runtime = NA,
         status = NA,
+        size = NA,
         results = NA
       )
       
@@ -252,7 +254,17 @@ server <- function(input, output, session) {
         runtime = prettyunits::pretty_dt(difftime(Sys.time(), started), compact = T)
       ) %>%
       arrange(started)
-    
+    # Add tar size if exists
+    df$size <- vapply(df$session_id, function(id) {
+      tar_name <- paste0(id, ".tar.gz")
+      tar_path <- file.path("www", tar_name)
+      if (!is.na(id) && file.exists(tar_path)) {
+        prettyunits::pretty_bytes(file.size(tar_path))
+      } else {
+        "-"
+      }
+    }, character(1))
+
     # Add direct download link if tarball exists
     df$results <- vapply(df$session_id, function(id) {
       tar_name <- paste0(id, ".tar.gz")
@@ -260,7 +272,7 @@ server <- function(input, output, session) {
       if (!is.na(id) && file.exists(tar_path)) {
         paste0('<a href="', tar_name, '" download>Download ', id, '</a>')
       } else {
-        ""
+        "-"
       }
     }, character(1))
     df
@@ -334,8 +346,8 @@ server <- function(input, output, session) {
       ),
       style = list(fontSize = '90%'),
       columns = list(
-        started = colDef(format = colFormat(datetime = T, locales = 'en-GB')),
-        results = colDef(html = TRUE),
+        started = colDef(format = colFormat(datetime = T, locales = 'en-GB'), width = 180),
+        results = colDef(html = TRUE, width = 150),
         status = colDef(html = TRUE)
       )
     )
