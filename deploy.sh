@@ -196,7 +196,8 @@ if [ "$SKIP_SYS_DEPS" = false ]; then
             libpng-dev \
             libtiff-dev \
             libjpeg-dev \
-            libgit2-dev
+            libgit2-dev \
+            libuv1-dev
         log_success "System packages installed successfully."
     else
         log_warn "apt-get not detected. Please ensure R, Java 11+, tmux, curl, and build tools are installed."
