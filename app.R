@@ -15,7 +15,8 @@ library(prettyunits)
 
 source('bin/global.R')
 # brew install iproute2mac for the ip command on macos
-ip <- system("ifconfig | grep 'inet ' | grep -v 127.0.0.1 | grep -v 172.17.0 | awk '{print $2}' | head -n 1", intern = TRUE)
+ip <- system("ip -4 addr show eth0 | awk '/inet / {print $2}' | cut -d/ -f1", intern = TRUE)
+
 
 git_commit <- tryCatch({
   sha <- system("git -C . rev-parse --short HEAD", intern = TRUE, ignore.stderr = TRUE)
@@ -473,7 +474,7 @@ server <- function(input, output, session) {
     withCallingHandlers({
       shinyjs::html(id = 'stdout', '')
       
-      miniserver <- ip
+      miniserver <- ip[1]
       df <- tmux_sessions()
       id <- session_selected()
       
