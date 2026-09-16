@@ -509,44 +509,50 @@ server <- function(input, output, session) {
       
       url_ui_list <- list()
       
-      for (u in users) {
-        tar_name <- paste0(id, '-', u, '-', digest(paste0(id,u), algo = 'crc32'), '.tar.gz')
-        tar_path <- file.path(miniserve_path, tar_name)
-        
-        if (!file.exists(tar_path) && dir.exists(miniserve_path)) {
-          system2('tar', args = c('-czf', tar_path, '-C', 'output', file.path(id, u))) 
-        }
-        url <- paste0('http://', miniserver, ":8080/", tar_name)
-        
-        # Output plain text URL to stdout
-        shinyjs::html('stdout', paste0(url, '\n'), add = T)
-        
-        clip_svg <- gsub("'", "\\\\'", gsub("\n", "", as.character(bsicons::bs_icon("clipboard"))))
-        check_svg <- gsub("'", "\\\\'", gsub("\n", "", as.character(bsicons::bs_icon("check-lg"))))
-        
-        # Robust JS copy code that avoids Bootstrap Modal focus trap
-        js_code <- paste0(
-          "var text = '", url, "'; var s = this; ",
-          "var cb = function() { s.innerHTML = '", check_svg, "'; s.style.color = 'green'; ",
-          "setTimeout(function() { s.innerHTML = '", clip_svg, "'; s.style.color = '#0047AB'; }, 2000); }; ",
-          "if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(cb); } else { ",
-          "var t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0'; ",
-          "s.parentNode.appendChild(t); t.focus(); t.select(); try { document.execCommand('copy'); cb(); } catch (err) {} ",
-          "s.parentNode.removeChild(t); }"
-        )
-        
-        url_div <- tags$div(
-          style = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding: 10px; background-color: #f8f9fa; border-radius: 5px; border: 1px solid #dee2e6;",
-          tags$span(style = "font-family: monospace; word-break: break-all;", url),
-          tags$span(
-            style = "cursor:pointer; color:#0047AB; margin-left:15px; font-size: 1.2em;",
-            onclick = js_code,
-            title = "Copy URL",
-            HTML(as.character(bsicons::bs_icon("clipboard")))
+      withProgress(message = 'Preparing archives...', value = 0, {
+        n_users <- length(users)
+        for (i in seq_along(users)) {
+          u <- users[i]
+          incProgress(1/n_users, detail = paste("User", i, "of", n_users))
+          
+          tar_name <- paste0(id, '-', u, '-', digest(paste0(id,u), algo = 'crc32'), '.tar.gz')
+          tar_path <- file.path(miniserve_path, tar_name)
+          
+          if (!file.exists(tar_path) && dir.exists(miniserve_path)) {
+            system2('tar', args = c('-czf', tar_path, '-C', 'output', file.path(id, u))) 
+          }
+          url <- paste0('http://', miniserver, ":8080/", tar_name)
+          
+          # Output plain text URL to stdout
+          shinyjs::html('stdout', paste0(url, '\n'), add = T)
+          
+          clip_svg <- gsub("'", "\\\\'", gsub("\n", "", as.character(bsicons::bs_icon("clipboard"))))
+          check_svg <- gsub("'", "\\\\'", gsub("\n", "", as.character(bsicons::bs_icon("check-lg"))))
+          
+          # Robust JS copy code that avoids Bootstrap Modal focus trap
+          js_code <- paste0(
+            "var text = '", url, "'; var s = this; ",
+            "var cb = function() { s.innerHTML = '", check_svg, "'; s.style.color = 'green'; ",
+            "setTimeout(function() { s.innerHTML = '", clip_svg, "'; s.style.color = '#0047AB'; }, 2000); }; ",
+            "if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(cb); } else { ",
+            "var t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0'; ",
+            "s.parentNode.appendChild(t); t.focus(); t.select(); try { document.execCommand('copy'); cb(); } catch (err) {} ",
+            "s.parentNode.removeChild(t); }"
           )
-        )
-        url_ui_list[[length(url_ui_list) + 1]] <- url_div
-      }
+          
+          url_div <- tags$div(
+            style = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding: 10px; background-color: #f8f9fa; border-radius: 5px; border: 1px solid #dee2e6;",
+            tags$span(style = "font-family: monospace; word-break: break-all;", url),
+            tags$span(
+              style = "cursor:pointer; color:#0047AB; margin-left:15px; font-size: 1.2em;",
+              onclick = js_code,
+              title = "Copy URL",
+              HTML(as.character(bsicons::bs_icon("clipboard")))
+            )
+          )
+          url_ui_list[[length(url_ui_list) + 1]] <- url_div
+        }
+      })
       
       myfile <- list.files(path = miniserve_path, pattern = id, full.names = T)[1]
       finfo <- file.info(myfile)
