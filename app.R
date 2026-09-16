@@ -156,7 +156,10 @@ server <- function(input, output, session) {
   shinyjs::disable('start')
   
   default_path <- Sys.getenv('DEFAULT_PATH') # path for shinyFiles volumes
+  if (default_path == "") default_path <- "~"
+  
   miniserve_path <- Sys.getenv('MINISERVE_PATH') # path where the files to share will be served
+  if (miniserve_path == "") miniserve_path <- "miniserve"
   volumes <- c(ont_data = default_path, getVolumes()())
   get_nxftgs_ver <- paste0(
     "git ls-remote ", "https://github.com/angelovangel/nxf-tgs.git", " HEAD | awk '{print substr($1, 1, 8)}'"
@@ -491,52 +494,78 @@ server <- function(input, output, session) {
   })
   
   # copy to miniserve_path/ and show user URLs
-  # miniserve -v -I $MINISERVE_PATH/
   observeEvent(input$show_urls, {
-    withCallingHandlers({
-      shinyjs::html(id = 'stdout', '')
+    shinyjs::html(id = 'stdout', '')
+    
+    miniserver <- ip[1]
+    df <- tmux_sessions()
+    id <- session_selected()
+    
+    if (!is.na(id) && pipeline_finished(df = df, id = id)) {
+      usersdirs <- list.dirs(paste0('output/', id), recursive = F)
+      users <- fs::path_file(usersdirs)
       
-      miniserver <- ip[1]
-      df <- tmux_sessions()
-      id <- session_selected()
+      shinyjs::html('stdout', paste0('Analysis contains ', length(users), ' users. Datashare URLs:\n------------------------------------\n'), add = T)
       
-      if (!is.na(id) && pipeline_finished(df = df, id = id)) {
-        usersdirs <- list.dirs(paste0('output/', id), recursive = F)
-        users <- fs::path_file(usersdirs)
-        shinyjs::html(
-          'stdout', 
-          paste0(
-            'Analysis contains ', length(users), 
-            ' users. Datashare URLs:\n',
-            '------------------------------------\n'
-            ), 
-          add = T)
+      url_ui_list <- list()
+      
+      for (u in users) {
+        tar_name <- paste0(id, '-', u, '-', digest(paste0(id,u), algo = 'crc32'), '.tar.gz')
+        tar_path <- file.path(miniserve_path, tar_name)
         
-        for (u in users) {
-          tar_name <- paste0(id, '-', u, '-', digest(paste0(id,u), algo = 'crc32'), '.tar.gz') #keeps randomid same for a sessionid-user combo
-          tar_path <- file.path(miniserve_path, tar_name) #keeps randomid same for a sessionid-user combo
-          
-          # create tar for each user
-          if (!file.exists(tar_path) && dir.exists(miniserve_path)) {
-            #cat(file.path('output', id, u))
-            system2('tar', args = c('-czf', tar_path, '-C', 'output', file.path(id, u))) 
-          }
-          shinyjs::html('stdout', paste0('http://', miniserver, ":8080/", tar_name, '\n'), add = T)
+        if (!file.exists(tar_path) && dir.exists(miniserve_path)) {
+          system2('tar', args = c('-czf', tar_path, '-C', 'output', file.path(id, u))) 
         }
+        url <- paste0('http://', miniserver, ":8080/", tar_name)
         
-        myfile <- list.files(path = miniserve_path, pattern = id, full.names = T)[1]
-        finfo <- file.info(myfile)
-        expdays <- difftime(finfo$mtime+(60*60*24*14), Sys.time(), units = 'days') %>% as.numeric() %>% round()
+        # Output plain text URL to stdout
+        shinyjs::html('stdout', paste0(url, '\n'), add = T)
         
-        shinyjs::html('stdout', paste0(
-          '------------------------------------\n(will expire in ',
-          expdays, ' days)'
-        ), add = T)
+        clip_svg <- gsub("'", "\\\\'", gsub("\n", "", as.character(bsicons::bs_icon("clipboard"))))
+        check_svg <- gsub("'", "\\\\'", gsub("\n", "", as.character(bsicons::bs_icon("check-lg"))))
         
-      } else {
-        shinyjs::html('stdout', 'Pipeline not finished or no session selected!', add = F)    
+        # Robust JS copy code that avoids Bootstrap Modal focus trap
+        js_code <- paste0(
+          "var text = '", url, "'; var s = this; ",
+          "var cb = function() { s.innerHTML = '", check_svg, "'; s.style.color = 'green'; ",
+          "setTimeout(function() { s.innerHTML = '", clip_svg, "'; s.style.color = '#0047AB'; }, 2000); }; ",
+          "if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(cb); } else { ",
+          "var t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0'; ",
+          "s.parentNode.appendChild(t); t.focus(); t.select(); try { document.execCommand('copy'); cb(); } catch (err) {} ",
+          "s.parentNode.removeChild(t); }"
+        )
+        
+        url_div <- tags$div(
+          style = "display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; padding: 10px; background-color: #f8f9fa; border-radius: 5px; border: 1px solid #dee2e6;",
+          tags$span(style = "font-family: monospace; word-break: break-all;", url),
+          tags$span(
+            style = "cursor:pointer; color:#0047AB; margin-left:15px; font-size: 1.2em;",
+            onclick = js_code,
+            title = "Copy URL",
+            HTML(as.character(bsicons::bs_icon("clipboard")))
+          )
+        )
+        url_ui_list[[length(url_ui_list) + 1]] <- url_div
       }
-    })
+      
+      myfile <- list.files(path = miniserve_path, pattern = id, full.names = T)[1]
+      finfo <- file.info(myfile)
+      expdays <- difftime(finfo$mtime+(60*60*24*14), Sys.time(), units = 'days') %>% as.numeric() %>% round()
+      
+      shinyjs::html('stdout', paste0('------------------------------------\n(will expire in ', expdays, ' days)\n'), add = T)
+      
+      showModal(modalDialog(
+        title = paste0("Datashare URLs (", length(users), " users)"),
+        tags$p(paste0("These URLs will expire in ", expdays, " days."), style = "color: #6c757d; margin-bottom: 15px;"),
+        tagList(url_ui_list),
+        size = "l",
+        easyClose = TRUE,
+        footer = modalButton("Close")
+      ))
+      
+    } else {
+      shinyjs::html('stdout', 'Pipeline not finished or no session selected!', add = F)    
+    }
   })
   
   # kill session (and delete data)
