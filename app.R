@@ -14,7 +14,7 @@ library(reactable)
 library(prettyunits)
 
 source('bin/global.R')
-ip <- system("curl -s ifconfig.me", intern = TRUE)
+ip <- system("hostname -I | awk '{print $1}'", intern = TRUE)
 
 
 git_commit <- tryCatch({
