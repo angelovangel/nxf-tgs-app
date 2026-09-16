@@ -14,8 +14,7 @@ library(reactable)
 library(prettyunits)
 
 source('bin/global.R')
-# brew install iproute2mac for the ip command on macos
-ip <- system("ip -4 addr show eth0 | awk '/inet / {print $2}' | cut -d/ -f1", intern = TRUE)
+ip <- system("curl -s ifconfig.me", intern = TRUE)
 
 
 git_commit <- tryCatch({
