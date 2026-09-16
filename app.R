@@ -132,6 +132,7 @@ ui <- page_navbar(
     class = 'sticky-controls',
     hover_action_button('start', 'Start pipeline', icon = icon('play'), button_animation = 'overline-reveal'),
     hover_action_button('show_session', 'Show session', icon = icon('expand'), button_animation = 'overline-reveal'),
+    hover_action_button('show_run_log', 'Show run log', icon = icon('file-lines'), button_animation = 'overline-reveal'),
     hover_action_button('show_urls', 'Show user data URLs', button_animation = 'overline-reveal'),
     hover_action_button('reset', 'Reset inputs', icon = icon('rotate-right'), button_animation = 'overline-reveal'),
     hover_action_button('kill', 'Kill session', icon = icon('xmark'), style = 'color:#0047AB;', button_animation = 'overline-reveal')
@@ -463,6 +464,28 @@ server <- function(input, output, session) {
     message = function(m) {
       shinyjs::html(id = "stdout", html = m$message, add = T);
       #runjs("document.getElementById('stdout').parentElement.scrollTo(0,1e9);")
+      runjs("document.getElementById('stdout').parentElement.scrollTo({ top: 1e9, behavior: 'smooth' });")
+    }
+    )
+  })
+  
+  observeEvent(input$show_run_log, {
+    withCallingHandlers({
+      shinyjs::html(id = "stdout", "")
+      log_file <- file.path("output", session_selected(), "pipeline.log")
+      if (file.exists(log_file)) {
+        p <- processx::run(
+          'cat', args = log_file,
+          stdout_callback = function(line, proc) {message(line)},
+          stderr_to_stdout = TRUE,
+          error_on_status = FALSE
+        )
+      } else {
+        message(paste0("Log file not found: ", log_file, "\n"))
+      }
+    },
+    message = function(m) {
+      shinyjs::html(id = "stdout", html = m$message, add = T);
       runjs("document.getElementById('stdout').parentElement.scrollTo({ top: 1e9, behavior: 'smooth' });")
     }
     )
