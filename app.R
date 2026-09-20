@@ -34,7 +34,7 @@ sidebar <- sidebar(
   
   shiny::div(id = 'inputs',
   # fastq_pass folder
-  shinyDirButton('fastq_folder', 'fastq_pass folder', title ='Please select a fastq_pass folder from a run', multiple = F),
+  shinyDirButton('fastq_folder', 'fastq_pass folder', title ='Please select a fastq_pass/bam_pass folder', multiple = F),
   fileInput('upload', 'Upload sample sheet', multiple = F, accept = c('.xlsx', '.csv'), placeholder = 'xlsx or csv file')
   ),
   
