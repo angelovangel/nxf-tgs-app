@@ -34,7 +34,7 @@ sidebar <- sidebar(
   
   shiny::div(id = 'inputs',
   # fastq_pass folder
-  shinyDirButton('fastq_folder', 'fastq_pass folder', title ='Please select a fastq_pass/bam_pass folder', multiple = F),
+  shinyDirButton('fastq_folder', 'fastq_pass/bam_pass folder', title ='Please select a fastq_pass/bam_pass folder', multiple = F),
   fileInput('upload', 'Upload sample sheet', multiple = F, accept = c('.xlsx', '.csv'), placeholder = 'xlsx or csv file')
   ),
   
@@ -426,7 +426,7 @@ server <- function(input, output, session) {
       #paste0('NXF_VER=', input$nxf_ver),
       'nextflow', 'run', 'angelovangel/nxf-tgs', 
       '--pipeline', input$pipeline,
-      if (is_test) '' else paste0('--fastq ', selectedFolder),
+      if (is_test) '' else paste0('--reads ', selectedFolder),
       if (is_test) '' else paste0('--samplesheet ', sheet_path),
       # allows per session cleanup
       '--outdir', file.path('output', session_id),
