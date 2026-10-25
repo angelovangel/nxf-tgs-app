@@ -53,7 +53,7 @@ sidebar <- sidebar(
   checkboxInput('advanced', 'Advanced settings', value = FALSE),
   conditionalPanel(
     condition = 'input.advanced',
-    selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity', 'low_mem', 'test'), selected = 'singularity', multiple = TRUE),
+    selectInput('profile', 'Nextflow profile', choices = c('standard', 'singularity', 'lowmem', 'test'), selected = 'singularity', multiple = TRUE),
     #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
     selectInput('nxf_ver', 'NXF version (for epi2me wf)', choices = c('24.04.2', '24.10.9', '25.04.6'), selected = '24.10.9'),
     selectInput('cpus', 'CPUs to allocate', choices = c(4, 8, 16, 32, 64), selected = 32),
