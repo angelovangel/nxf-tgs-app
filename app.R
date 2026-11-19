@@ -57,6 +57,7 @@ sidebar <- sidebar(
     #selectInput('entry', 'Pipeline modules to execute', choices = c( 'Merge reads'='merge_reads', 'Merge reads + Report'='report', 'Full'='full'), selected = 'full'),
     selectInput('nxf_ver', 'NXF version (for epi2me wf)', choices = c('24.04.2', '24.10.9', '25.04.6'), selected = '24.10.9'),
     selectInput('cpus', 'CPUs to allocate', choices = c(4, 8, 16, 32, 64), selected = 32),
+    numericInput('max_reads', label = HTML("Cap reads per sample <br>(01-fastq/bam only, empty = off)"), value = NA, min = 100, step = 100, max = 100000),
     textInput('additional_args', label = HTML("Additional arguments <br>(passed to epi2me wf)")),
     hover_action_button('cleanup_space', 'Cleanup Space', button_animation = 'overline-reveal',
                         icon = icon('trash-can'), style = 'color:#fff; background-color:#C0392B; border-color:#922B21;')
@@ -414,6 +415,8 @@ server <- function(input, output, session) {
     is_test <- 'test' %in% input$profile
     nxf_ver_val <- if (!is.null(input$nxf_ver)) input$nxf_ver else '24.10.9'
     cpus_val <- if (!is.null(input$cpus)) input$cpus else 32
+    max_reads_val <- suppressWarnings(as.integer(input$max_reads))
+    max_reads_arg <- if (!is.null(max_reads_val) && length(max_reads_val) == 1 && !is.na(max_reads_val) && max_reads_val >= 1) paste('--max_reads', max_reads_val) else ''
     sheet <- samplesheet()
     sheet_path <- if (!is.null(sheet) && !is.null(sheet$datapath)) sheet$datapath else ""
   
@@ -432,6 +435,7 @@ server <- function(input, output, session) {
       '--outdir', file.path('output', session_id),
       '--nxf_ver', nxf_ver_val,
       '--cpus', cpus_val,
+      max_reads_arg,
       '--assembly_args', assembly_args(), # these are given as "--large_construct --assembly_tool canu"
       '-profile', profile_arg,
       # allows per session cleanup
