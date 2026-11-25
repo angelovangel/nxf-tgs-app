@@ -419,7 +419,19 @@ server <- function(input, output, session) {
     max_reads_arg <- if (!is.null(max_reads_val) && length(max_reads_val) == 1 && !is.na(max_reads_val) && max_reads_val >= 1) paste('--max_reads', max_reads_val) else ''
     sheet <- samplesheet()
     sheet_path <- if (!is.null(sheet) && !is.null(sheet$datapath)) sheet$datapath else ""
-  
+
+    # an empty --reads/--samplesheet becomes Boolean true in nextflow, so do not start without them
+    if (!is_test) {
+      if (length(selectedFolder) != 1 || !nzchar(selectedFolder) || !dir.exists(selectedFolder)) {
+        notify_failure(text = 'Select a reads folder (fastq_pass or bam_pass) first', position = 'center-bottom')
+        return()
+      }
+      if (length(sheet_path) != 1 || !nzchar(sheet_path) || !file.exists(sheet_path)) {
+        notify_failure(text = 'Upload a samplesheet first', position = 'center-bottom')
+        return()
+      }
+    }
+
     # launch new clean! session
     args1 <- c('new', '-d', '-s', new_session_name, '-x', '120', '-y', '30', "'bash --login'") # add 'bash --login' to prevent R from inheriting from previous tmux sessions?
     system2('tmux', args = args1)
